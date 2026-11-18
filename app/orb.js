@@ -49,7 +49,6 @@ function render() {
   shown = st;
   Orb.setState(st);
   bridge.visual(st);
-  if (st !== 'thinking' && st !== 'acting') finishSteps();
   setLabel(LABELS[st] || st, ANIMATED_DOTS.has(st));
   const c = Orb.STATES[st]?.colors[0] || '#7c5cff';
   card.style.setProperty('--tint', c + '44');
@@ -90,34 +89,15 @@ function typeReply(text) {
   }, 70);
 }
 
-// ---------- live step timeline ----------
-// Each action the AI takes appears as a row: spinner while running, check when done.
-const stepsEl = $('steps');
-function addStep(text) {
-  const last = stepsEl.lastElementChild;
-  if (last && last.dataset.text === text) return;
-  if (last) last.classList.add('done');
-  const row = document.createElement('div');
-  row.className = 'step';
-  row.dataset.text = text;
-  row.innerHTML = '<span class="mark"></span><span class="txt"></span>';
-  row.querySelector('.txt').textContent = text;
-  stepsEl.appendChild(row);
-  while (stepsEl.children.length > 4) stepsEl.firstElementChild.remove();
-  showCard();
-}
-function finishSteps() { for (const r of stepsEl.children) r.classList.add('done'); }
-function clearSteps() { stepsEl.textContent = ''; }
-
 // ---------- events from the app ----------
 bridge.on('status', ({ status, detail, conversation }) => {
   mainStatus = status;
-  if (status === 'acting' && detail) { addStep(detail); $('detail').textContent = ''; }
-  else $('detail').textContent = status === 'thinking' ? '' : detail || '';
+  // Only the listening hint and "Next: …" are shown; what it's doing step by step stays hidden.
+  $('detail').textContent = status === 'listening' ? detail || '' : '';
   card.classList.toggle('convo', !!conversation && status !== 'idle' && status !== 'paused');
   render();
 });
-bridge.on('transcript', (t) => { setText($('you'), t); setText($('reply'), ''); clearSteps(); showCard(); });
+bridge.on('transcript', (t) => { setText($('you'), t); setText($('reply'), ''); showCard(); });
 bridge.on('heard', (t) => { if (mainStatus === 'confirming') setText($('you'), t); });
 // Your words appear as you speak (one phrase at a time), before the command runs.
 bridge.on('transcript-live', (t) => { $('you').textContent = t; $('reply').textContent = ''; clearInterval(typeTimer); showCard(); });

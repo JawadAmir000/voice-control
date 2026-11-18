@@ -18,7 +18,6 @@ if (!app.requestSingleInstanceLock()) app.quit();
 const cfg = loadConfig();
 let orb: BrowserWindow;
 let overlay: BrowserWindow | undefined;
-let lastAction = '';
 let tray: Tray;
 let audio: UtilityProcess | undefined;
 let brain: Brain;
@@ -99,8 +98,6 @@ const convo = new Conversation(
   {
     status: (s: AgentStatus | 'paused', detail = '') => {
       ui('status', { status: s, detail, conversation: convo?.active });
-      if (s === 'acting' && detail) lastAction = detail;
-      if (s === 'thinking' || s === 'acting') fx('detail', detail || (s === 'acting' ? lastAction : ''));
       tray?.setToolTip(`Voice Control – ${s}${detail ? ': ' + detail : ''}`);
     },
     ui,
@@ -146,10 +143,11 @@ function startAudio() {
 
 function createOrb() {
   const { workArea } = screen.getPrimaryDisplay();
-  const w = 500, h = 380;
+  // A slim vertical dock in the middle of the right screen edge.
+  const w = 240, h = 500;
   orb = new BrowserWindow({
     width: w, height: h,
-    x: workArea.x + workArea.width - w - 4, y: workArea.y + workArea.height - h - 4,
+    x: workArea.x + workArea.width - w - 2, y: workArea.y + Math.round((workArea.height - h) / 2),
     title: 'Voice Control',
     frame: false, transparent: true, resizable: false, alwaysOnTop: true, skipTaskbar: true,
     hasShadow: false, show: false, focusable: true,
@@ -228,7 +226,7 @@ app.whenReady().then(() => {
 
   createOrb();
   if (cfg.screenGlow) createOverlay();
-  desktopEvents.on('click', (p) => { if (overlay) fx('click', { ...toOverlay(p), label: lastAction }); });
+  desktopEvents.on('click', (p) => { if (overlay) fx('click', toOverlay(p)); }); // a soft ripple, no text
   tray = new Tray(nativeImage.createFromPath(path.join(APP_DIR, 'icon.png')));
   tray.on('click', () => convo.toggle());
 

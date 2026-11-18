@@ -163,13 +163,6 @@ export function pcServer(host: Host) {
         return { content: [{ type: 'text', text: `exit ${r.code}\n${r.output}` }], isError: r.code !== 0 };
       })),
 
-      tool('say', 'Say a short progress update out loud while you keep working.', {
-        text: z.string(),
-      }, async (a) => {
-        host.say(a.text);
-        return text('Said.');
-      }),
-
       tool('ask_user', 'Ask the user a question out loud and wait for their spoken answer. Use when the request is ambiguous, and before sending messages, posting, or buying anything.', {
         question: z.string(),
       }, (a) => safe(async () => {

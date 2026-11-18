@@ -21,13 +21,13 @@
     color: var(--text); user-select: none;
   }
 
-  #stage { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: flex-end; }
+  #stage { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
 
   /* ---------- orb ---------- */
-  #orbWrap { position: relative; width: 200px; height: 200px; flex: none; }
+  #orbWrap { position: relative; width: 150px; height: 150px; flex: none; }
   #orb { width: 100%; height: 100%; display: block; cursor: pointer; }
   #hint {
-    position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+    position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
     font-size: 10.5px; letter-spacing: .04em; color: var(--muted); white-space: nowrap;
     opacity: 0; transition: opacity .4s var(--ease); pointer-events: none;
     text-shadow: 0 1px 6px #000c;
@@ -36,24 +36,24 @@
 
   /* ---------- card ---------- */
   #card {
-    width: 300px; margin: 0 -18px 46px 0; padding: 14px 16px 12px;
+    width: 218px; margin-top: -10px; padding: 12px 13px 11px;
     background: var(--card);
     border: 1px solid var(--card-border);
-    border-radius: 20px;
+    border-radius: 22px;
     box-shadow: 0 18px 50px -12px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.05);
     display: flex; flex-direction: column; gap: 8px;
-    transform-origin: 100% 100%;
+    transform-origin: 50% 0;
     transition: opacity .45s var(--ease), transform .55s var(--ease);
     position: relative; overflow: hidden;
   }
   #card::before { /* soft tint that follows the state colour */
-    content: ""; position: absolute; inset: -40% -20% auto auto; width: 260px; height: 220px;
+    content: ""; position: absolute; inset: -60px -40px auto -40px; height: 180px;
     background: radial-gradient(closest-side, var(--tint, rgba(124,92,255,.22)), transparent);
     transition: background .8s var(--ease); pointer-events: none;
   }
-  #card.hidden { opacity: 0; transform: translateX(16px) scale(.96); pointer-events: none; }
+  #card.hidden { opacity: 0; transform: translateY(-10px) scale(.94); pointer-events: none; }
 
-  .head { display: flex; align-items: center; gap: 10px; position: relative; }
+  .head { display: flex; align-items: center; gap: 7px; position: relative; }
   #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tint-solid, #7c5cff); box-shadow: 0 0 10px var(--tint-solid, #7c5cff); transition: background .6s, box-shadow .6s; flex: none; }
   #label { position: relative; height: 18px; flex: 1; overflow: hidden; font-weight: 600; font-size: 12.5px; letter-spacing: .01em; }
   #label span { position: absolute; left: 0; top: 0; white-space: nowrap; transition: transform .45s var(--ease), opacity .45s var(--ease); }
@@ -62,13 +62,14 @@
   .dots::after { content: ""; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4) infinite; }
   @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75%, 100% { content: "..."; } }
 
-  #eq { display: flex; align-items: center; gap: 2.5px; height: 18px; }
+  #eq { display: none; }
   #eq i { display: block; width: 3px; height: 4px; border-radius: 2px; background: var(--tint-solid, #7c5cff); opacity: .9; transition: background .6s; }
 
   .iconBtn {
-    width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
-    color: var(--faint); transition: background .2s, color .2s; flex: none;
+    width: 20px; height: 20px; opacity: 0; transition: opacity .25s, background .2s, color .2s; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+    color: var(--faint); flex: none;
   }
+  #card:hover .iconBtn { opacity: 1; }
   .iconBtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
   #quit:hover { background: rgba(255, 93, 93, .16); color: #ff7b7b; }
 
@@ -76,39 +77,29 @@
   #live { display: none; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #7ef9ff; border: 1px solid rgba(126,249,255,.35); border-radius: 999px; padding: 1px 7px; flex: none; }
   #card.convo #live { display: block; animation: livePulse 2.4s ease-in-out infinite; }
   @keyframes livePulse { 50% { opacity: .55; } }
-  #detail {color: var(--muted); font-size: 11.5px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; transition: opacity .3s; }
+  #detail:empty { display: none; }
+  #detail {color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; transition: opacity .3s; }
 
-  /* live step timeline */
-  #steps { display: flex; flex-direction: column; gap: 5px; position: relative; }
-  #steps:empty { display: none; }
-  .step { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: #e6e7f2; animation: rise .4s var(--ease); }
-  .step .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .step .mark { width: 14px; height: 14px; border-radius: 50%; flex: none; position: relative; border: 2px solid rgba(255,255,255,.12); border-top-color: var(--tint-solid, #7c5cff); animation: spin .8s linear infinite; }
-  .step.done { color: var(--muted); }
-  .step.done .mark { animation: none; border: 0; background: color-mix(in srgb, var(--tint-solid, #34d399) 30%, transparent); }
-  .step.done .mark::after { content: ""; position: absolute; left: 4.5px; top: 2px; width: 3.5px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
-  .step:not(.done) .txt { background: linear-gradient(90deg, #e6e7f2 0%, #fff 45%, #e6e7f2 60%); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
-  .bubble {position: relative; font-size: 13.5px; line-height: 1.45; transition: opacity .35s var(--ease), transform .35s var(--ease); }
+  .bubble {position: relative; font-size: 13px; line-height: 1.45; transition: opacity .35s var(--ease), transform .35s var(--ease); }
   .bubble:empty { display: none; }
-  #you { color: #d7d8e6; padding-left: 10px; border-left: 2px solid rgba(255,255,255,.14); max-height: 40px; overflow: hidden; }
-  #reply { color: var(--text); max-height: 62px; overflow: hidden; }
+  #you { color: #c9cadb; font-size: 12px; padding-left: 9px; border-left: 2px solid rgba(255,255,255,.14); max-height: 36px; overflow: hidden; }
+  #reply { color: var(--text); max-height: 76px; overflow: hidden; }
   .fresh { animation: rise .45s var(--ease); }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
   #confirm { display: flex; gap: 8px; max-height: 0; opacity: 0; overflow: hidden; transition: max-height .4s var(--ease), opacity .3s; }
   #confirm.show { max-height: 44px; opacity: 1; }
-  button { flex: 1; border: 0; border-radius: 11px; padding: 8px; font: inherit; font-weight: 600; cursor: pointer; transition: transform .15s, filter .2s; }
+  button { flex: 1; border: 0; border-radius: 11px; padding: 7px; font: inherit; font-weight: 600; cursor: pointer; transition: transform .15s, filter .2s; }
   button:hover { filter: brightness(1.12); }
   button:active { transform: scale(.97); }
   #yes { background: linear-gradient(135deg, #34d399, #10b981); color: #052e1f; }
   #no { background: rgba(255,255,255,.08); color: var(--text); }
 
-  .inputRow { position: relative; display: flex; align-items: center; margin-top: 2px; }
+  .inputRow { position: relative; display: flex; align-items: center; max-height: 0; opacity: 0; overflow: hidden; transition: max-height .35s var(--ease), opacity .25s; }
+  #card:hover .inputRow, #card:focus-within .inputRow { max-height: 40px; opacity: 1; }
   input {
     width: 100%; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.045); color: var(--text);
-    border-radius: 12px; padding: 8px 34px 8px 11px; font: inherit; outline: none; transition: border-color .25s, background .25s;
+    border-radius: 12px; padding: 7px 30px 7px 10px; font-size: 12.5px; font: inherit; outline: none; transition: border-color .25s, background .25s;
   }
   input::placeholder { color: var(--faint); }
   input:focus { border-color: var(--tint-solid, #7c5cff); background: rgba(255,255,255,.07); }
@@ -120,6 +111,10 @@
 </head>
 <body>
 <div id="stage">
+  <div id="orbWrap">
+    <canvas id="orb"></canvas>
+    <div id="hint">Click or press <span id="hk">Ctrl+Alt+V</span></div>
+  </div>
   <div id="card" class="hidden hit">
     <div class="head">
       <div id="dot"></div>
@@ -134,18 +129,13 @@
       </div>
     </div>
     <div id="detail"></div>
-    <div id="steps"></div>
     <div id="you" class="bubble"></div>
     <div id="reply" class="bubble"></div>
-    <div id="confirm"><button id="yes">Yes, do it</button><button id="no">No</button></div>
+    <div id="confirm"><button id="yes">Yes</button><button id="no">No</button></div>
     <div class="inputRow">
-      <input id="typed" placeholder="Type a command…" spellcheck="false">
+      <input id="typed" placeholder="Type instead…" spellcheck="false">
       <kbd>↵</kbd>
     </div>
-  </div>
-  <div id="orbWrap">
-    <canvas id="orb"></canvas>
-    <div id="hint">Click or press <span id="hk">Ctrl+Alt+V</span></div>
   </div>
 </div>
 <script src="orb-renderer.js"></script>

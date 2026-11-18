@@ -17,7 +17,7 @@ const PALETTE = {
   error:      ['#ef4444', '#f97316', '#7f1d1d', '#fb7185'],
 };
 const SPIN = { listening: '5s', thinking: '2.2s', acting: '3s', speaking: '4s', confirming: '6s', error: '8s', idle: '8s' };
-const LABEL = { listening: 'Listening…', thinking: 'Thinking…', acting: 'Working…', speaking: 'Speaking', confirming: 'Waiting for your OK', error: 'Something went wrong' };
+const LABEL = { listening: 'Listening…', thinking: 'Thinking…', acting: 'Working on it…', speaking: 'Speaking', confirming: 'Waiting for your OK', error: 'Something went wrong' };
 const ACTIVE = new Set(['listening', 'thinking', 'acting', 'speaking', 'confirming', 'error']);
 
 let state = 'idle';
@@ -42,7 +42,7 @@ function render() {
   colors.forEach((c, i) => root.style.setProperty(`--c${i + 1}`, c));
   root.style.setProperty('--spin', SPIN[state] || '6s');
   document.body.classList.toggle('on', ACTIVE.has(state));
-  const text = (state === 'acting' || state === 'thinking') && detail ? detail : LABEL[state] || '';
+  const text = LABEL[state] || ''; // just the state; the details stay out of your way
   if (text) setAction(text, state === 'thinking' || state === 'acting');
   $('bars').style.display = state === 'listening' || state === 'speaking' ? 'flex' : 'none';
 }
