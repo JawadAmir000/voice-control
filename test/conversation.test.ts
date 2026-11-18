@@ -384,3 +384,29 @@ describe('Nova', () => {
     expect(w.c.mode).toBe('idle');
   });
 });
+
+describe('Nova mishearings (real log)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  const nova = { userName: 'Jawad', assistantName: 'Nova', wakeWord: 'hey nova, hey computer' };
+  it('"Hello, no bad" (Whisper splitting "Nova") wakes her', async () => {
+    const w = setup(nova);
+    w.talk('Hello, no bad');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(w.c.mode).not.toBe('idle');
+  });
+  it('"Hey Noba, open Chrome" runs the command', async () => {
+    const w = setup(nova);
+    w.talk('Hey Noba, open Chrome');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(w.sent).toEqual(['open Chrome']);
+  });
+  it('ordinary replies like "Hello, no thanks" or "Hi, nobody is home" do not', async () => {
+    const w = setup(nova);
+    w.talk('Hello, no thanks.');
+    w.talk('Hi, nobody is home right now.');
+    w.talk('No bad news today.');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(w.sent).toEqual([]);
+    expect(w.c.mode).toBe('idle');
+  });
+});

@@ -57,7 +57,23 @@ export function matchWake(transcript: string, wakePhrase: string): { woke: boole
     const rest = original.slice(i + 1).join(' ').replace(/^[,.!?;:\s]+/, '').trim();
     return { woke: true, rest };
   }
+  // Right after a clear greeting, short names get a looser, sound-alike match, including a name
+  // Whisper split in two: "Hello, no bad" / "Hello Noba" → "Hello Nova".
+  if (name.length <= 6) {
+    for (let i = 1; i < Math.min(3, words.length); i++) {
+      if (!words.slice(0, i).every((w) => STRONG_GREETINGS.has(w) || lead.some((l) => close(w, l)))) break;
+      const original = transcript.trim().split(/\s+/);
+      const restFrom = (k: number) => original.slice(k).join(' ').replace(/^[,.!?;:\s]+/, '').trim();
+      if (soundsLike(words[i], name)) return { woke: true, rest: restFrom(i + 1) };
+      if (i + 1 < words.length && soundsLike(words[i] + words[i + 1], name)) return { woke: true, rest: restFrom(i + 2) };
+    }
+  }
   return { woke: false, rest: '' };
+}
+
+/** Same first letter, similar length, at most 2 letters different ("nobad" ≈ "nova"). */
+function soundsLike(heard: string, name: string): boolean {
+  return heard[0] === name[0] && heard.length >= name.length - 1 && heard.length <= name.length + 2 && editDistance(heard, name) <= 2;
 }
 
 /**
