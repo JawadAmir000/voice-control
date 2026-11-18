@@ -344,3 +344,43 @@ describe('waking while a video plays', () => {
     expect(w.c.mode).toBe('idle');
   });
 });
+
+describe('Nova', () => {
+  beforeEach(() => vi.useFakeTimers());
+  const nova = { userName: 'Jawad', assistantName: 'Nova', wakeWord: 'hey nova, hey computer' };
+  it('"Hello Nova" wakes her and she introduces herself by name', async () => {
+    const w = setup(nova);
+    w.talk('Hello Nova.');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(w.spoken[0]).toMatch(/Jawad! I'm Nova, your personal AI assistant\./);
+    expect(w.sent).toEqual([]);
+  });
+  it('understands common mishearings ("Hello Noah") and the old wake word', async () => {
+    const a = setup(nova);
+    a.talk('Hello Noah');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(a.spoken[0]).toMatch(/I'm Nova/);
+    const b = setup(nova);
+    b.talk('Hey computer, open Notepad');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(b.sent).toEqual(['open Notepad']);
+  });
+  it('"Hey Nova, open YouTube" runs the command; a bare "Hey Nova" just wakes her', async () => {
+    const w = setup(nova);
+    w.talk('Hey Nova, open YouTube');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(w.sent).toEqual(['open YouTube']);
+    const q = setup(nova);
+    q.talk('Hey Nova');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(q.spoken).toEqual([]);
+    expect(q.c.mode).toBe('listening');
+  });
+  it('the name in normal speech does not wake her', async () => {
+    const w = setup(nova);
+    w.talk('We watched a documentary about a nova in space last night.');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(w.spoken).toEqual([]);
+    expect(w.c.mode).toBe('idle');
+  });
+});

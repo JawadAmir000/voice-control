@@ -1,4 +1,4 @@
-# Voice Control: "Hey Computer"
+# Nova: your voice assistant for Windows
 
 Control your Windows PC by talking to it. Say **"Hey Computer, open Visual Studio Code"**, or press **Ctrl+Alt+V** and say what you want. Claude (on your own subscription) works out the steps and does them with the keyboard, mouse and apps.
 
@@ -51,7 +51,7 @@ A mic icon appears in the tray and a small orb docks in the middle of the right 
 - Ask for something new while it's working and it does that next.
 - It goes back to sleep after 25 seconds of silence, or when you say "that's all", "bye" or "stop listening". The **LIVE** badge on the card shows the conversation is open.
 
-**Say hello.** "Hello Computer" (or "hello" mid-conversation) gets an instant personal introduction: *"Good evening, Jawad! I'm your personal AI assistant. I can … What can I do for you today?"* Set your name with `userName` in the settings file.
+**Say hello.** "Hello Nova" (or just "hello") gets an instant personal introduction: *"Good evening, Jawad! I'm Nova, your personal AI assistant. I can … What can I do for you today?"* Set your name with `userName` and hers with `assistantName` in the settings file.
 
 **See it working.** While the AI is active, the edges of your screen glow (blue while listening, violet while thinking, green while working, pink while speaking). A status pill at the top shows its state (Listening, Thinking, Working on it, Speaking) and every click it makes leaves a soft ripple. It works quietly: no step-by-step narration and no talk about tools; replies are one short sentence about the result. These windows are hidden from the AI's own screenshots. Turn the glow off with **Screen glow while AI works** in the menu.
 
@@ -75,7 +75,8 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
 ```json
 {
   "userName": "Jawad",
-  "wakeWord": "hey computer",
+  "assistantName": "Nova",
+  "wakeWord": "hey nova, hey computer",
   "hotkey": "Control+Alt+V",
   "model": "sonnet",
   "whisper": "base.en",

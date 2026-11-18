@@ -5,7 +5,7 @@ import { classify, describe } from './permissions.js';
 import { systemPrompt } from './prompt.js';
 import type { Host } from './host.js';
 
-export type BrainOptions = { model?: string; userName?: string; log?: (...a: unknown[]) => void };
+export type BrainOptions = { model?: string; userName?: string; assistantName?: string; log?: (...a: unknown[]) => void };
 
 /** A simple async queue that feeds user messages into one long-lived Claude session. */
 class Inbox implements AsyncIterable<SDKUserMessage> {
@@ -67,7 +67,7 @@ export class Brain {
       prompt: this.inbox,
       options: {
         model: this.opts.model ?? 'sonnet',
-        systemPrompt: systemPrompt(this.opts.userName),
+        systemPrompt: systemPrompt(this.opts.userName, this.opts.assistantName),
         tools: [], // no built-in Claude Code tools; only our pc tools
         mcpServers: { pc: pcServer(this.host) },
         allowedTools: [],

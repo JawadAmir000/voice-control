@@ -165,7 +165,10 @@ bridge.on('confirm', (q) => {
   $('confirm').classList.toggle('show', !!q);
   if (q) { typeReply(q); showCard(); }
 });
-bridge.on('config', ({ hotkey }) => { if (hotkey) $('hk').textContent = hotkey.replace('Control', 'Ctrl'); });
+bridge.on('config', ({ hotkey, assistantName }) => {
+  if (hotkey) $('hk').textContent = hotkey.replace('Control', 'Ctrl');
+  if (assistantName) { LABELS.idle = `Say “Hello ${assistantName}”`; shown = ''; render(); }
+});
 
 // ---------- speaking (free Windows voices) ----------
 let speechEnv = 0, speechStart = 0;

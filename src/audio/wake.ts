@@ -11,8 +11,24 @@ function editDistance(a: string, b: string): number {
   return dp[a.length][b.length];
 }
 
-const close = (word: string, target: string) => word === target || (target.length >= 5 && editDistance(word, target) <= Math.floor(target.length / 4));
+/** Ways Whisper tends to mishear short assistant names. */
+const NAME_ALIASES: Record<string, string[]> = {
+  nova: ['noah', 'novah', 'novia', 'nava', 'nover', 'nowa', 'novo', 'knova'],
+  computer: ['commuter', 'computers'],
+};
 
+const close = (word: string, target: string) =>
+  word === target ||
+  (NAME_ALIASES[target] ?? []).includes(word) ||
+  (target.length >= 5 && editDistance(word, target) <= Math.floor(target.length / 4));
+
+/** "Nova" → ["nova", "noah", …]: the name plus how Whisper tends to mishear it. */
+export const nameVariants = (name: string) => (name ? [name.toLowerCase(), ...(NAME_ALIASES[name.toLowerCase()] ?? [])] : []);
+
+/** "hey nova, hey computer" → ["hey nova", "hey computer"] */
+export const wakePhrases = (setting: string) => setting.split(',').map((p) => p.trim()).filter(Boolean);
+
+const STRONG_GREETINGS = new Set(['hey', 'hi', 'hello', 'ok', 'okay', 'hay', 'yo', 'hiya', 'heyy']);
 const GREETINGS = new Set(['hey', 'hi', 'hello', 'ok', 'okay', 'a', 'hay', 'yo', 'ey', 'heyy', 'hei']);
 
 /**
@@ -21,6 +37,11 @@ const GREETINGS = new Set(['hey', 'hi', 'hello', 'ok', 'okay', 'a', 'hay', 'yo',
  * Tolerates small mis-hearings ("hey commuter", "okay computer").
  */
 export function matchWake(transcript: string, wakePhrase: string): { woke: boolean; rest: string } {
+  const list = wakePhrases(wakePhrase);
+  if (list.length > 1) {
+    for (const p of list) { const m = matchWake(transcript, p); if (m.woke) return m; }
+    return { woke: false, rest: '' };
+  }
   const words = norm(transcript).split(' ').filter(Boolean);
   const wake = norm(wakePhrase).split(' ').filter(Boolean);
   const name = wake[wake.length - 1]; // "computer"
@@ -47,6 +68,11 @@ export function matchWake(transcript: string, wakePhrase: string): { woke: boole
 export function findWake(transcript: string, wakePhrase: string): { woke: boolean; rest: string } {
   const start = matchWake(transcript, wakePhrase);
   if (start.woke) return start;
+  const list = wakePhrases(wakePhrase);
+  if (list.length > 1) {
+    for (const p of list) { const m = findWake(transcript, p); if (m.woke) return m; }
+    return { woke: false, rest: '' };
+  }
   const tokens = transcript.trim().split(/\s+/);
   const w = tokens.map((t) => norm(t));
   const wake = norm(wakePhrase).split(' ').filter(Boolean);
@@ -55,7 +81,8 @@ export function findWake(transcript: string, wakePhrase: string): { woke: boolea
   for (let i = 1; i < w.length; i++) {
     if (!close(w[i], name)) continue;
     const prev = w[i - 1];
-    if (!(GREETINGS.has(prev) || lead.some((l) => close(prev, l)))) continue;
+    // Mid-sentence only a real greeting counts ("a nova" is ordinary English, "hey nova" isn't).
+    if (!(STRONG_GREETINGS.has(prev) || lead.some((l) => close(prev, l)))) continue;
     const rest = tokens.slice(i + 1).join(' ').replace(/^[,.!?;:\s]+/, '').trim();
     return { woke: true, rest };
   }

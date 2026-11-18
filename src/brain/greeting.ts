@@ -6,10 +6,11 @@ const GREETING_WORDS = new Set(['hello', 'hi', 'hey', 'hiya', 'yo', 'greetings',
 const FILLER = new Set(['there', 'computer', 'assistant', 'buddy', 'friend', 'good', 'how', 'are', 'you', 'doing', "what's", 'whats', 'up', 'is', 'it', 'going', 'oh', 'well', 'so', 'ok', 'okay', 'again', 'my', 'dear', 'today', 'all', 'and', 'alaikum']);
 
 /** "Hello", "Hi there", "Good morning computer", "Hello, how are you?" → true. "Hello, open Chrome" → false. */
-export function isGreeting(text: string): boolean {
+export function isGreeting(text: string, names: string[] = []): boolean {
   const words = norm(text).split(' ').filter(Boolean);
   if (words.length === 0 || words.length > 7) return false;
-  return words.some((w) => GREETING_WORDS.has(w)) && words.every((w) => GREETING_WORDS.has(w) || FILLER.has(w));
+  const named = new Set(names.map((n) => n.toLowerCase()));
+  return words.some((w) => GREETING_WORDS.has(w)) && words.every((w) => GREETING_WORDS.has(w) || FILLER.has(w) || named.has(w));
 }
 
 function partOfDay(d: Date): string {
@@ -32,8 +33,9 @@ const ASKS = [
 ];
 
 /** "Good evening, Jawad! I'm your personal AI assistant. I can …. What can I do for you today?" */
-export function greetingFor(name: string, now = new Date(), pick = Math.random()): string {
+export function greetingFor(name: string, now = new Date(), pick = Math.random(), assistantName = ''): string {
   const i = Math.floor(pick * ABILITIES.length) % ABILITIES.length;
   const hello = name ? `${partOfDay(now)}, ${name}!` : `${partOfDay(now)}!`;
-  return `${hello} I'm your personal AI assistant. I can ${ABILITIES[i]}. ${ASKS[i]}`;
+  const me = assistantName ? `I'm ${assistantName}, your personal AI assistant.` : "I'm your personal AI assistant.";
+  return `${hello} ${me} I can ${ABILITIES[i]}. ${ASKS[i]}`;
 }

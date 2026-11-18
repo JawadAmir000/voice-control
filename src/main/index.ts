@@ -121,6 +121,7 @@ const convo = new Conversation(
     speak: cfg.speak,
     settleMs: cfg.endOfSpeechMs,
     userName: cfg.userName,
+    assistantName: cfg.assistantName,
   },
 );
 
@@ -159,7 +160,7 @@ function createOrb() {
   orb.setIgnoreMouseEvents(true, { forward: true });
   orb.loadFile(path.join(APP_DIR, 'orb.html'));
   orb.once('ready-to-show', () => orb.showInactive());
-  orb.webContents.on('did-finish-load', () => ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord }));
+  orb.webContents.on('did-finish-load', () => ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord, assistantName: cfg.assistantName }));
   orb.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 'warning') log('[orb console]', e.message, e.sourceId?.split('/').pop(), e.lineNumber); });
   orb.webContents.on('render-process-gone', (_e, d) => { log('[orb] renderer gone:', d.reason); setTimeout(() => orb.reload(), 1000); });
 }
@@ -178,7 +179,7 @@ function createOverlay() {
   overlay.setContentProtection(true); // keep it out of the AI's own screenshots
   overlay.loadFile(path.join(APP_DIR, 'overlay.html'));
   overlay.once('ready-to-show', () => overlay?.showInactive());
-  overlay.webContents.on('did-finish-load', () => fx('config', { assistantName: cfg.userName ? `${cfg.userName}'s AI` : 'AI Assistant' }));
+  overlay.webContents.on('did-finish-load', () => fx('config', { assistantName: cfg.assistantName || 'AI Assistant' }));
   overlay.webContents.on('render-process-gone', () => setTimeout(() => overlay?.reload(), 1000));
 }
 
@@ -250,14 +251,14 @@ app.whenReady().then(() => {
   ipcMain.on('level', (_e, v: number) => fx('level', v));
   ipcMain.on('orb-menu', () => buildMenu().popup({ window: orb }));
   ipcMain.on('interactive',(_e, on: boolean) => orb.setIgnoreMouseEvents(!on, { forward: true }));
-  ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord });
+  ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord, assistantName: cfg.assistantName });
 
-  brain = new Brain(convo.host, { model: cfg.model, userName: cfg.userName, log });
+  brain = new Brain(convo.host, { model: cfg.model, userName: cfg.userName, assistantName: cfg.assistantName, log });
   brain.start();
   startAudio();
   if (cfg.ttsVoice) startVoice();
   convo.setPaused(false); // shows the idle status
-  log(`Ready. Say "${cfg.wakeWord}" or press ${activeHotkey}. Conversation mode ${cfg.conversation ? 'on' : 'off'}, interrupting ${cfg.bargeIn ? 'on' : 'off'}.`);
+  log(`Ready. Say "Hello ${cfg.assistantName || 'computer'}" or press ${activeHotkey}. Conversation mode ${cfg.conversation ? 'on' : 'off'}, interrupting ${cfg.bargeIn ? 'on' : 'off'}.`);
 });
 
 app.on('window-all-closed', () => { /* keep running in the tray */ });

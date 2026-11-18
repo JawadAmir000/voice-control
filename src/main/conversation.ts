@@ -1,5 +1,5 @@
 import type { AgentStatus, Host } from '../brain/host.js';
-import { findWake, isGoodbye, isStop, lastSentence, matchWake, parseYesNo, stripEcho } from '../audio/wake.js';
+import { findWake, isGoodbye, isStop, lastSentence, matchWake, nameVariants, parseYesNo, stripEcho, wakePhrases } from '../audio/wake.js';
 import { greetingFor, isGreeting } from '../brain/greeting.js';
 
 /** How long after the assistant stops talking its voice may still reach the mic. */
@@ -33,6 +33,8 @@ export interface ConversationOptions {
   speak: boolean;
   /** Your first name, used in greetings. */
   userName?: string;
+  /** The assistant's own name ("Nova"): she introduces herself with it. */
+  assistantName?: string;
   /** A short "Hello" on its own wakes it (default on). */
   greetToWake?: boolean;
   /** After you stop talking, wait this long for you to continue before acting. */
@@ -225,7 +227,7 @@ export class Conversation {
           // A short greeting ("Hello.", "Hi there", "Good morning") also wakes it and gets the
           // introduction: on its own, or as the last sentence of a clip. Other speech doesn't.
           if (this.opts.greetToWake === false) return;
-          const greeting = isGreeting(text) && words(text) <= 4 ? text : tail && isGreeting(tail) && words(tail) <= 3 ? tail : '';
+          const greeting = this.greets(text) && words(text) <= 4 ? text : tail && this.greets(tail) && words(tail) <= 3 ? tail : '';
           if (greeting) {
             this.fx.log('woken by greeting:', greeting);
             this.wake(false);
@@ -238,7 +240,8 @@ export class Conversation {
         else {
           // "Hello computer" → introduce yourself. The bare wake phrase ("hey computer") just wakes it.
           const said = tail || text;
-          if (isGreeting(said) && simple(said) !== simple(this.opts.wakeWord)) void this.run(said);
+          const bare = wakePhrases(this.opts.wakeWord).some((p) => simple(p) === simple(said));
+          if (this.greets(said) && !bare) void this.run(said);
         }
       }
     }
@@ -269,6 +272,11 @@ export class Conversation {
   }
 
   // ---------------------------------------------------------------- commands
+
+  /** Is this just a greeting ("Hello Nova", "Hi there")? */
+  private greets(text: string) {
+    return isGreeting(text, nameVariants(this.opts.assistantName ?? ''));
+  }
 
   /** Pause/resume the wake word (hotkey and clicks still work). */
   setPaused(p: boolean) {
@@ -314,7 +322,7 @@ export class Conversation {
     this.status('thinking', text);
     const t = Date.now();
     // Greetings get an instant personal introduction; everything else goes to Claude.
-    const reply = isGreeting(text) ? greetingFor(this.opts.userName ?? '') : await this.fx.send(text);
+    const reply = this.greets(text) ? greetingFor(this.opts.userName ?? '', new Date(), Math.random(), this.opts.assistantName ?? '') : await this.fx.send(text);
     this.fx.log(`done in ${((Date.now() - t) / 1000).toFixed(1)}s:`, reply);
     const interrupted = this.stopped ? undefined : await this.say(reply);
     this.stopped = false;

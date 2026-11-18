@@ -5,7 +5,9 @@ import path from 'node:path';
 export type Config = {
   /** Your first name: the assistant greets you with it. */
   userName: string;
-  /** Phrase that wakes the assistant. */
+  /** The assistant's name. Say "Hello Nova" / "Hey Nova" to wake her. */
+  assistantName: string;
+  /** Phrases that wake the assistant, comma-separated (any greeting works in front of the name). */
   wakeWord: string;
   /** Electron accelerator for push-to-talk. */
   hotkey: string;
@@ -39,7 +41,8 @@ export type Config = {
 
 export const DEFAULTS: Config = {
   userName: '',
-  wakeWord: 'hey computer',
+  assistantName: 'Nova',
+  wakeWord: 'hey nova, hey computer',
   // Ctrl+Alt+Space is taken by the Claude desktop app's Quick Entry.
   hotkey: 'Control+Alt+V',
   model: 'sonnet',
@@ -69,6 +72,7 @@ export function loadConfig(): Config {
   }
   const cfg = { ...DEFAULTS, ...saved };
   if (cfg.hotkey === 'Control+Alt+Space') cfg.hotkey = DEFAULTS.hotkey; // old default, clashes with Claude
+  if (cfg.wakeWord === 'hey computer') cfg.wakeWord = DEFAULTS.wakeWord; // old default: add the assistant's name
   saveConfig(cfg); // write defaults so the user can find and edit the file
   return cfg;
 }
