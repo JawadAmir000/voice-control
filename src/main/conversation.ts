@@ -1,8 +1,10 @@
 import type { AgentStatus, Host } from '../brain/host.js';
 import { isGoodbye, isStop, matchWake, parseYesNo, stripEcho } from '../audio/wake.js';
+import { greetingFor, isGreeting } from '../brain/greeting.js';
 
 /** How long after the assistant stops talking its voice may still reach the mic. */
 const ECHO_TAIL_MS = 1500;
+const simple = (t: string) => t.toLowerCase().replace(/[^a-z ]+/g, '').replace(/\s+/g, ' ').trim();
 const words = (t: string) => t.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length;
 
 /** Everything the conversation needs from the outside world (Electron, Claude, speech worker). */
@@ -29,6 +31,8 @@ export interface ConversationOptions {
   /** Let you interrupt the assistant while it is speaking. */
   bargeIn: boolean;
   speak: boolean;
+  /** Your first name, used in greetings. */
+  userName?: string;
   /** After you stop talking, wait this long for you to continue before acting. */
   settleMs: number;
 }
@@ -193,6 +197,8 @@ export class Conversation {
         if (!w.woke) return;
         this.wake(false);
         if (w.rest) this.listen(w.rest);
+        // "Hello computer" → introduce yourself. The bare wake phrase ("hey computer") just wakes it.
+        else if (isGreeting(text) && simple(text) !== simple(this.opts.wakeWord)) void this.run(text);
       }
     }
   }
@@ -266,7 +272,8 @@ export class Conversation {
     this.setMode('busy');
     this.status('thinking', text);
     const t = Date.now();
-    const reply = await this.fx.send(text);
+    // Greetings get an instant personal introduction; everything else goes to Claude.
+    const reply = isGreeting(text) ? greetingFor(this.opts.userName ?? '') : await this.fx.send(text);
     this.fx.log(`done in ${((Date.now() - t) / 1000).toFixed(1)}s:`, reply);
     const interrupted = this.stopped ? undefined : await this.say(reply);
     this.stopped = false;

@@ -5,6 +5,7 @@ import { Brain } from '../brain/agent.js';
 import type { AgentStatus } from '../brain/host.js';
 import { CONFIG_FILE, loadConfig, saveConfig } from '../config.js';
 import { ps } from '../win/ps.js';
+import { desktopEvents } from '../win/desktop.js';
 import { Conversation } from './conversation.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 const cfg = loadConfig();
 let orb: BrowserWindow;
+let overlay: BrowserWindow | undefined;
+let lastAction = '';
 let tray: Tray;
 let audio: UtilityProcess | undefined;
 let brain: Brain;
@@ -24,6 +27,9 @@ let quitting = false;
 
 function ui(channel: string, payload?: unknown) {
   if (orb && !orb.isDestroyed()) orb.webContents.send(channel, payload);
+}
+function fx(channel: string, payload?: unknown) {
+  if (overlay && !overlay.isDestroyed()) overlay.webContents.send(channel, payload);
 }
 
 // ---------------------------------------------------------------- speech output
@@ -62,6 +68,8 @@ const convo = new Conversation(
   {
     status: (s: AgentStatus | 'paused', detail = '') => {
       ui('status', { status: s, detail, conversation: convo?.active });
+      if (s === 'acting' && detail) lastAction = detail;
+      if (s === 'thinking' || s === 'acting') fx('detail', detail || (s === 'acting' ? lastAction : ''));
       tray?.setToolTip(`Voice Control – ${s}${detail ? ': ' + detail : ''}`);
     },
     ui,
@@ -84,6 +92,7 @@ const convo = new Conversation(
     bargeIn: cfg.bargeIn,
     speak: cfg.speak,
     settleMs: cfg.endOfSpeechMs,
+    userName: cfg.userName,
   },
 );
 
@@ -106,7 +115,7 @@ function startAudio() {
 
 function createOrb() {
   const { workArea } = screen.getPrimaryDisplay();
-  const w = 500, h = 300;
+  const w = 500, h = 380;
   orb = new BrowserWindow({
     width: w, height: h,
     x: workArea.x + workArea.width - w - 4, y: workArea.y + workArea.height - h - 4,
@@ -116,6 +125,7 @@ function createOrb() {
     webPreferences: { preload: path.join(APP_DIR, 'preload.cjs'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   orb.setAlwaysOnTop(true, 'floating');
+  orb.setContentProtection(true); // keep it out of the AI's own screenshots
   // Transparent areas pass clicks through; the page turns this off while the mouse is over the orb or card.
   orb.setIgnoreMouseEvents(true, { forward: true });
   orb.loadFile(path.join(APP_DIR, 'orb.html'));
@@ -123,6 +133,31 @@ function createOrb() {
   orb.webContents.on('did-finish-load', () => ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord }));
   orb.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 'warning') log('[orb console]', e.message, e.sourceId?.split('/').pop(), e.lineNumber); });
   orb.webContents.on('render-process-gone', (_e, d) => { log('[orb] renderer gone:', d.reason); setTimeout(() => orb.reload(), 1000); });
+}
+
+function createOverlay() {
+  const d = screen.getPrimaryDisplay();
+  overlay = new BrowserWindow({
+    ...d.bounds,
+    title: 'Voice Control Overlay',
+    frame: false, transparent: true, resizable: false, movable: false, alwaysOnTop: true, skipTaskbar: true,
+    hasShadow: false, show: false, focusable: false, fullscreenable: false,
+    webPreferences: { preload: path.join(APP_DIR, 'preload.cjs'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
+  });
+  overlay.setAlwaysOnTop(true, 'screen-saver');
+  overlay.setIgnoreMouseEvents(true);
+  overlay.setContentProtection(true); // keep it out of the AI's own screenshots
+  overlay.loadFile(path.join(APP_DIR, 'overlay.html'));
+  overlay.once('ready-to-show', () => overlay?.showInactive());
+  overlay.webContents.on('did-finish-load', () => fx('config', { assistantName: cfg.userName ? `${cfg.userName}'s AI` : 'AI Assistant' }));
+  overlay.webContents.on('render-process-gone', () => setTimeout(() => overlay?.reload(), 1000));
+}
+
+/** Physical screen pixels (from the PowerShell helper) → overlay CSS pixels. */
+function toOverlay(p: { x: number; y: number }) {
+  const dip = screen.screenToDipPoint(p);
+  const b = overlay!.getBounds();
+  return { x: dip.x - b.x, y: dip.y - b.y };
 }
 
 function toggle(key: 'conversation' | 'bargeIn' | 'speak', on: boolean) {
@@ -143,6 +178,7 @@ function buildMenu() {
     { type: 'separator' },
     { label: 'Conversation mode (keep listening after replies)', type: 'checkbox', checked: cfg.conversation, click: (i) => toggle('conversation', i.checked) },
     { label: 'Let me interrupt while it speaks', type: 'checkbox', checked: cfg.bargeIn, click: (i) => toggle('bargeIn', i.checked) },
+    { label: 'Screen glow while AI works', type: 'checkbox', checked: cfg.screenGlow, click: (i) => { cfg.screenGlow = i.checked; saveConfig(cfg); if (i.checked && !overlay) createOverlay(); if (!i.checked) { overlay?.destroy(); overlay = undefined; } } },
     { label: 'Speak replies', type: 'checkbox', checked: cfg.speak, click: (i) => toggle('speak', i.checked) },
     { label: 'Start with Windows', type: 'checkbox', checked: cfg.autostart, click: (i) => { cfg.autostart = i.checked; saveConfig(cfg); applyAutostart(); } },
     { label: 'Settings file…', click: () => shell.openPath(CONFIG_FILE) },
@@ -160,6 +196,8 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === 'media');
 
   createOrb();
+  if (cfg.screenGlow) createOverlay();
+  desktopEvents.on('click', (p) => { if (overlay) fx('click', { ...toOverlay(p), label: lastAction }); });
   tray = new Tray(nativeImage.createFromPath(path.join(APP_DIR, 'icon.png')));
   tray.on('click', () => convo.toggle());
 
@@ -179,11 +217,13 @@ app.whenReady().then(() => {
   ipcMain.on('stop', () => void convo.stop());
   ipcMain.on('log', (_e, ...a) => log('[orb]', ...a));
   ipcMain.on('quit', () => app.quit());
+  ipcMain.on('visual', (_e, st: string) => fx('state', st));
+  ipcMain.on('level', (_e, v: number) => fx('level', v));
   ipcMain.on('orb-menu', () => buildMenu().popup({ window: orb }));
   ipcMain.on('interactive',(_e, on: boolean) => orb.setIgnoreMouseEvents(!on, { forward: true }));
   ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord });
 
-  brain = new Brain(convo.host, { model: cfg.model, log });
+  brain = new Brain(convo.host, { model: cfg.model, userName: cfg.userName, log });
   brain.start();
   startAudio();
   convo.setPaused(false); // shows the idle status

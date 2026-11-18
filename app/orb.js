@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const preview = !window.vc; // opened directly in a browser: run a demo instead of the real app
 const bus = {};
-const bridge = window.vc || { on: (ch, cb) => (bus[ch] = cb), emit: (ch, p) => bus[ch] && bus[ch](p), audio() {},speakDone() {}, typed() {}, confirm() {}, orbClick() {}, stop() {}, log: console.log, setInteractive() {}, quit() {}, menu() {} };
+const bridge = window.vc || { on: (ch, cb) => (bus[ch] = cb), emit: (ch, p) => bus[ch] && bus[ch](p), audio() {},speakDone() {}, typed() {}, confirm() {}, orbClick() {}, stop() {}, log: console.log, setInteractive() {}, quit() {}, menu() {}, visual() {}, level() {} };
 
 const card = $('card');
 Orb.mount($('orb'));
@@ -38,7 +38,8 @@ function setLabel(text, dots) {
   if (dots) s.className = 'dots';
   s.classList.add('in');
   box.appendChild(s);
-  requestAnimationFrame(() => requestAnimationFrame(() => s.classList.remove('in')));
+  void s.offsetWidth; // apply the start position, then slide in
+  s.classList.remove('in');
   if (old) { old.classList.add('out'); setTimeout(() => old.remove(), 500); }
 }
 
@@ -47,6 +48,8 @@ function render() {
   if (st === shown) return;
   shown = st;
   Orb.setState(st);
+  bridge.visual(st);
+  if (st !== 'thinking' && st !== 'acting') finishSteps();
   setLabel(LABELS[st] || st, ANIMATED_DOTS.has(st));
   const c = Orb.STATES[st]?.colors[0] || '#7c5cff';
   card.style.setProperty('--tint', c + '44');
@@ -87,14 +90,34 @@ function typeReply(text) {
   }, 70);
 }
 
+// ---------- live step timeline ----------
+// Each action the AI takes appears as a row: spinner while running, check when done.
+const stepsEl = $('steps');
+function addStep(text) {
+  const last = stepsEl.lastElementChild;
+  if (last && last.dataset.text === text) return;
+  if (last) last.classList.add('done');
+  const row = document.createElement('div');
+  row.className = 'step';
+  row.dataset.text = text;
+  row.innerHTML = '<span class="mark"></span><span class="txt"></span>';
+  row.querySelector('.txt').textContent = text;
+  stepsEl.appendChild(row);
+  while (stepsEl.children.length > 4) stepsEl.firstElementChild.remove();
+  showCard();
+}
+function finishSteps() { for (const r of stepsEl.children) r.classList.add('done'); }
+function clearSteps() { stepsEl.textContent = ''; }
+
 // ---------- events from the app ----------
 bridge.on('status', ({ status, detail, conversation }) => {
   mainStatus = status;
-  $('detail').textContent = detail || '';
+  if (status === 'acting' && detail) { addStep(detail); $('detail').textContent = ''; }
+  else $('detail').textContent = status === 'thinking' ? '' : detail || '';
   card.classList.toggle('convo', !!conversation && status !== 'idle' && status !== 'paused');
   render();
 });
-bridge.on('transcript', (t) => { setText($('you'), t); setText($('reply'), ''); showCard(); });
+bridge.on('transcript', (t) => { setText($('you'), t); setText($('reply'), ''); clearSteps(); showCard(); });
 bridge.on('heard', (t) => { if (mainStatus === 'confirming') setText($('you'), t); });
 // Your words appear as you speak (one phrase at a time), before the command runs.
 bridge.on('transcript-live', (t) => { $('you').textContent = t; $('reply').textContent = ''; clearInterval(typeTimer); showCard(); });
@@ -188,6 +211,7 @@ function micLevel() {
 // ---------- per-frame level routing + mini equalizer ----------
 const bars = [...document.querySelectorAll('#eq i')];
 const barLv = bars.map(() => 0);
+let lastLevelSent = 0;
 function tick(now) {
   const st = visualState();
   let lv = 0;
@@ -199,6 +223,7 @@ function tick(now) {
     lv = Math.min(1, 0.22 + speechEnv * 0.55 + 0.18 * Math.abs(Math.sin(s * 11.3) * Math.sin(s * 4.1 + 1)));
   } else if (st === 'idle') lv = micLevel() * 0.35;
   Orb.setLevel(lv);
+  if (now - lastLevelSent > 50) { lastLevelSent = now; bridge.level(Math.round(lv * 100) / 100); }
 
   const active = st === 'listening' || st === 'speaking' || st === 'confirming';
   bars.forEach((b, i) => {

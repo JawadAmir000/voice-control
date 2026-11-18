@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld('vc', {
   setInteractive: (on) => ipcRenderer.send('interactive', on),
   quit: () => ipcRenderer.send('quit'),
   menu: () => ipcRenderer.send('orb-menu'),
+  visual: (state) => ipcRenderer.send('visual', state),
+  level: (v) => ipcRenderer.send('level', v),
 });

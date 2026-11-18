@@ -5,7 +5,7 @@ import { classify, describe } from './permissions.js';
 import { systemPrompt } from './prompt.js';
 import type { Host } from './host.js';
 
-export type BrainOptions = { model?: string; log?: (...a: unknown[]) => void };
+export type BrainOptions = { model?: string; userName?: string; log?: (...a: unknown[]) => void };
 
 /** A simple async queue that feeds user messages into one long-lived Claude session. */
 class Inbox implements AsyncIterable<SDKUserMessage> {
@@ -67,7 +67,7 @@ export class Brain {
       prompt: this.inbox,
       options: {
         model: this.opts.model ?? 'sonnet',
-        systemPrompt: systemPrompt(),
+        systemPrompt: systemPrompt(this.opts.userName),
         tools: [], // no built-in Claude Code tools; only our pc tools
         mcpServers: { pc: pcServer(this.host) },
         allowedTools: [],
@@ -92,7 +92,7 @@ export class Brain {
         } else if (m.type === 'assistant') {
           for (const block of m.message.content) {
             if (block.type === 'text' && block.text.trim()) lastText = block.text.trim();
-            if (block.type === 'tool_use') this.host.status('acting', block.name.replace('mcp__pc__', ''));
+            if (block.type === 'tool_use') this.host.status('acting');
           }
         } else if (m.type === 'result') {
           const reply = m.subtype === 'success' ? (m.result || lastText) : `Sorry, that failed: ${m.subtype}`;

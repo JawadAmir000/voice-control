@@ -81,3 +81,18 @@ describe('apps and keys', () => {
     expect(() => parseChord('hyper+x')).toThrow();
   });
 });
+
+import { greetingFor, isGreeting } from '../src/brain/greeting.js';
+
+describe('greeting', () => {
+  it('recognises plain greetings, not commands', () => {
+    for (const t of ['Hello', 'Hi there!', 'Hello computer', 'Good morning', 'Hey, how are you?', 'Hello, how are you doing today?', 'Assalamualaikum']) expect(isGreeting(t)).toBe(true);
+    for (const t of ['Hello, open Chrome', 'hi can you open notepad', 'open the hello world file', 'How are you processing everything?']) expect(isGreeting(t)).toBe(false);
+  });
+  it('introduces itself by name with the time of day', () => {
+    const g = greetingFor('Jawad', new Date(2026, 10, 17, 21, 0), 0);
+    expect(g).toMatch(/^Good evening, Jawad! I'm your personal AI assistant\. I can .+\. .+\?$/);
+    expect(greetingFor('Jawad', new Date(2026, 10, 17, 9, 0), 0)).toMatch(/^Good morning, Jawad!/);
+    expect(greetingFor('', new Date(2026, 10, 17, 14, 0), 0)).toMatch(/^Good afternoon! I'm/);
+  });
+});

@@ -51,6 +51,10 @@ A mic icon appears in the tray and a floating orb appears in the bottom-right co
 - Ask for something new while it's working and it does that next.
 - It goes back to sleep after 25 seconds of silence, or when you say "that's all", "bye" or "stop listening". The **LIVE** badge on the card shows the conversation is open.
 
+**Say hello.** "Hello Computer" (or "hello" mid-conversation) gets an instant personal introduction: *"Good evening, Jawad! I'm your personal AI assistant. I can … What can I do for you today?"* Set your name with `userName` in the settings file.
+
+**See it working.** While the AI is active, the edges of your screen glow (blue while listening, violet while thinking, green while working, pink while speaking). A status pill at the top shows what it's doing, every click it makes leaves a ripple with a label, and the card lists each step with a check mark when it's done. These windows are hidden from the AI's own screenshots. Turn the glow off with **Screen glow while AI works** in the menu.
+
 **Stop a task:** say "stop", press **Esc**, or press the hotkey again.
 
 If it keeps interrupting itself (loud speakers, no headphones), turn off **Let me interrupt while it speaks** in the tray menu.
@@ -70,6 +74,7 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
 
 ```json
 {
+  "userName": "Jawad",
   "wakeWord": "hey computer",
   "hotkey": "Control+Alt+V",
   "model": "sonnet",
@@ -81,6 +86,7 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
   "endOfSpeechMs": 1000,
   "speak": true,
   "voice": "",
+  "screenGlow": true,
   "autostart": false
 }
 ```

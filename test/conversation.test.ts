@@ -227,3 +227,31 @@ describe('phrases', () => {
     expect(isEcho('open Chrome instead', 'Done, Notepad is open with your text.')).toBe(false);
   });
 });
+
+describe('personal greeting', () => {
+  beforeEach(() => vi.useFakeTimers());
+  it('"Hello computer" gets an instant introduction by name, without asking Claude', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.talk('Hello computer');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(w.sent).toEqual([]);
+    expect(w.spoken[0]).toMatch(/Jawad! I'm your personal AI assistant/);
+    await w.endSpeech();
+    expect(w.c.mode).toBe('listening');
+  });
+  it('a bare "Hey computer" only wakes it', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.talk('Hey computer');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(w.spoken).toEqual([]);
+    expect(w.c.mode).toBe('listening');
+  });
+  it('"hello" in the middle of a conversation also greets', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.c.toggle();
+    w.talk('hello');
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(w.spoken[0]).toMatch(/Jawad/);
+    expect(w.sent).toEqual([]);
+  });
+});

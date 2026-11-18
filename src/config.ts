@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 export type Config = {
+  /** Your first name: the assistant greets you with it. */
+  userName: string;
   /** Phrase that wakes the assistant. */
   wakeWord: string;
   /** Electron accelerator for push-to-talk. */
@@ -25,11 +27,14 @@ export type Config = {
   speak: boolean;
   /** Name of a Windows voice to use, or "" for the default. */
   voice: string;
+  /** Glow around the screen edges + status pill + click ripples while the AI works. */
+  screenGlow: boolean;
   /** Start with Windows. */
   autostart: boolean;
 };
 
 export const DEFAULTS: Config = {
+  userName: '',
   wakeWord: 'hey computer',
   // Ctrl+Alt+Space is taken by the Claude desktop app's Quick Entry.
   hotkey: 'Control+Alt+V',
@@ -42,6 +47,7 @@ export const DEFAULTS: Config = {
   endOfSpeechMs: 1000,
   speak: true,
   voice: '',
+  screenGlow: true,
   autostart: false,
 };
 

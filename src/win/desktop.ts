@@ -1,7 +1,11 @@
 import { readFile, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { ps, psStr } from './ps.js';
+
+/** Lets the UI show what the AI does: 'click' { x, y } in physical screen pixels. */
+export const desktopEvents = new EventEmitter();
 
 // ---------- coordinates ----------
 // Claude works in the pixel space of the (downscaled) screenshot it was shown.
@@ -187,6 +191,7 @@ export async function typeText(text: string) {
 
 export async function click(x: number, y: number, button = 'left', clicks = 1) {
   const p = await toPhysical(x, y);
+  desktopEvents.emit('click', p);
   await ps.run(`[VC]::MouseButton(${p.x}, ${p.y}, ${psStr(button)}, ${clicks}); Out-Json 'ok'`);
 }
 

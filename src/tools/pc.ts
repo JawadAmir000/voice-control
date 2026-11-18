@@ -37,6 +37,7 @@ export function pcServer(host: Host) {
       tool('list_apps', 'List installed Start-menu apps, optionally filtered.', {
         filter: z.string().optional(),
       }, (a) => safe(async () => {
+        act('Looking through your apps');
         const apps = await d.listApps();
         const names = (a.filter ? d.rankApps(apps, a.filter) : apps).map((x) => x.Name);
         return text(names.slice(0, 80).join('\n') || 'No matches');
@@ -52,6 +53,7 @@ export function pcServer(host: Host) {
       })),
 
       tool('list_windows', 'List open windows (title, process, which one is active).', {}, () => safe(async () => {
+        act('Checking open windows');
         const w = await d.listWindows();
         return text(w.map((x) => `${x.active ? '* ' : '  '}${x.title}  [${x.process}]`).join('\n') || 'No windows');
       })),
@@ -60,7 +62,7 @@ export function pcServer(host: Host) {
         action: z.enum(['focus', 'close', 'minimize', 'maximize']),
         title: z.string(),
       }, (a) => safe(async () => {
-        act(`${a.action} ${a.title}`);
+        act(`${{ focus: 'Switching to', close: 'Closing', minimize: 'Minimizing', maximize: 'Maximizing' }[a.action]} ${a.title}`);
         const r = await d.windowAction(a.title, a.action);
         await d.sleep(400);
         return text(r);
@@ -86,6 +88,7 @@ export function pcServer(host: Host) {
       })),
 
       tool('read_ui', 'List the clickable elements (buttons, fields, links, tabs, menu items) of the active window with their x,y centre in screenshot coordinates. Cheaper and more precise than a screenshot.', {}, () => safe(async () => {
+        act('Reading the window');
         const ui = await d.readUi();
         const lines = ui.elements.map((e) => `${e.type} "${e.name}" @ ${e.x},${e.y}${e.enabled ? '' : ' (disabled)'}`);
         return text(`Window: ${ui.window}\n${lines.join('\n') || '(no accessible elements — use screenshot)'}`);
@@ -121,7 +124,7 @@ export function pcServer(host: Host) {
         button: z.enum(['left', 'right', 'middle']).optional(),
         double: z.boolean().optional(),
       }, (a) => safe(async () => {
-        act(`Clicking at ${a.x},${a.y}`);
+        act('Clicking');
         await d.click(a.x, a.y, a.button ?? 'left', a.double ? 2 : 1);
         await d.sleep(500);
         return text('Clicked.');
@@ -137,6 +140,7 @@ export function pcServer(host: Host) {
       tool('scroll', 'Scroll at x,y. Positive amount scrolls up, negative scrolls down (1 = one notch).', {
         x: z.number(), y: z.number(), amount: z.number(),
       }, (a) => safe(async () => {
+        act(a.amount > 0 ? 'Scrolling up' : 'Scrolling down');
         await d.scroll(a.x, a.y, a.amount);
         await d.sleep(300);
         return text('Scrolled.');
@@ -145,6 +149,7 @@ export function pcServer(host: Host) {
       tool('wait', 'Wait for something to load.', {
         seconds: z.number().min(0.1).max(30),
       }, (a) => safe(async () => {
+        act('Waiting for it to load');
         await d.sleep(a.seconds * 1000);
         return text('Done waiting.');
       })),
