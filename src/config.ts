@@ -39,7 +39,7 @@ export const DEFAULTS: Config = {
   conversation: true,
   followUpSeconds: 25,
   bargeIn: true,
-  endOfSpeechMs: 700,
+  endOfSpeechMs: 1000,
   speak: true,
   voice: '',
   autostart: false,

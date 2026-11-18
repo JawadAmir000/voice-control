@@ -78,7 +78,7 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
   "conversation": true,
   "followUpSeconds": 25,
   "bargeIn": true,
-  "endOfSpeechMs": 700,
+  "endOfSpeechMs": 1000,
   "speak": true,
   "voice": "",
   "autostart": false

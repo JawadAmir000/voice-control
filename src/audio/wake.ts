@@ -66,6 +66,40 @@ export function isEcho(heard: string, spoken: string): boolean {
   return hits / h.length >= 0.5;
 }
 
+/**
+ * Removes the assistant's own voice from a transcript and returns what's left ('' if it was all echo).
+ * Speakers often record the end of a reply and the user's next words in one clip, e.g.
+ * "Ready to help with anything on your PC. So which model are you using?" →
+ * "So which model are you using?". The echo is the leading run of words that follows the
+ * spoken reply in order (small mis-hearings allowed).
+ */
+export function stripEcho(heard: string, spoken: string): string {
+  const spokenWords = norm(spoken).split(' ').filter(Boolean);
+  const spokenSet = new Set(spokenWords);
+  const tokens = heard.trim().split(/\s+/).filter(Boolean);
+  const w = tokens.map((t) => norm(t));
+
+  // Find the longest in-order run starting at the first or second heard word.
+  let cut = 0;
+  for (let start = 0; start < Math.min(2, w.length); start++) {
+    for (let from = 0; from < spokenWords.length; from++) {
+      if (spokenWords[from] !== w[start]) continue;
+      let p = from + 1, matched = 1, end = start + 1, misses = 0;
+      for (let i = start + 1; i < w.length && misses < 2; i++) {
+        if (!w[i]) continue;
+        const k = spokenWords.slice(p, p + 4).indexOf(w[i]);
+        if (k >= 0) { p += k + 1; matched++; end = i + 1; misses = 0; } else misses++;
+      }
+      if (matched >= 2 && end > cut) cut = end;
+    }
+  }
+  const rest = tokens.slice(cut);
+  const restWords = rest.map((t) => norm(t)).filter((x) => x.length > 1);
+  // Nothing left, or only scattered words from the reply ("do", "voice open") → all echo.
+  if (restWords.length === 0 || restWords.every((x) => spokenSet.has(x))) return '';
+  return rest.join(' ').replace(/^[,.!?;:\s]+/, '');
+}
+
 export function isStop(text: string): boolean {
   const t = norm(text);
   return /^(hey computer )?(stop|cancel|abort|never mind|nevermind|stop it|stop stop)$/.test(t);

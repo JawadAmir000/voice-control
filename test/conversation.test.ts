@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Conversation, type Effects } from '../src/main/conversation.js';
-import { isEcho, isGoodbye } from '../src/audio/wake.js';
+import { isEcho, isGoodbye, stripEcho } from '../src/audio/wake.js';
 
 /** Fake world: records what the conversation does; speech ends when we say so. */
 function setup(overrides: Partial<ConstructorParameters<typeof Conversation>[1]> = {}) {
@@ -147,6 +147,19 @@ describe('interrupting the assistant', () => {
     expect(w.c.mode).toBe('listening');
   });
 
+  it('answers a question you asked while its echo was still playing', async () => {
+    const w = setup();
+    w.setReply(() => 'Doing well, thanks for asking! Ready to help with anything on your PC.');
+    w.talk('Hey computer, how are you');
+    await vi.advanceTimersByTimeAsync(800);
+    w.c.onSpeech(true);
+    await w.endSpeech();
+    w.c.onSpeech(false);
+    w.c.onText('doing well. Thanks for asking. Ready to help with anything on your PC. Which model are you using?');
+    await vi.advanceTimersByTimeAsync(800);
+    expect(w.sent).toEqual(['how are you', 'Which model are you using?']);
+  });
+
   it('still hears you right after it finishes talking', async () => {
     const w = setup();
     w.setReply(() => 'Notepad is open.');
@@ -193,6 +206,22 @@ describe('phrases', () => {
     for (const t of ["That's all.", 'Thanks, bye!', 'stop listening', 'Okay, thank you, that is all', 'Go to sleep']) expect(isGoodbye(t)).toBe(true);
     for (const t of ['open the bye folder', 'say goodbye to Sam in Slack', 'thanks for opening Chrome, now type hi']) expect(isGoodbye(t)).toBe(false);
   });
+  it('keeps your words when they are recorded together with its echo (real log)', () => {
+    expect(stripEcho(
+      'doing well. Thanks for asking. Ready to help with anything on your PC. So what is your brain right now? I need to move which kind of model you are using.',
+      'Doing well, thanks for asking! Ready to help with anything on your PC.',
+    )).toBe('So what is your brain right now? I need to move which kind of model you are using.');
+    expect(stripEcho(
+      'Yes, I can hear you loud and clear. I asked what would you like me to do? Yeah, I asked you...',
+      'Yes, I can hear you loud and clear. What would you like me to do?',
+    )).toBe('I asked what would you like me to do? Yeah, I asked you...');
+    // pure echo, fragments, and your own command that happens to share a word
+    expect(stripEcho('Notepad is open', 'Done, Notepad is open with your text.')).toBe('');
+    expect(stripEcho('and run your PC by', 'I can run your PC by voice: open apps and manage files.')).toBe('');
+    expect(stripEcho('do', 'Just tell me what you would like to do first.')).toBe('');
+    expect(stripEcho('open Chrome instead', 'Done, Notepad is open with your text.')).toBe('open Chrome instead');
+  });
+
   it('detects its own voice', () => {
     expect(isEcho('Notepad is open', 'Done, Notepad is open with your text.')).toBe(true);
     expect(isEcho('open Chrome instead', 'Done, Notepad is open with your text.')).toBe(false);

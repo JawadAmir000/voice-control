@@ -89,11 +89,11 @@ const convo = new Conversation(
 
 function startAudio() {
   audio = utilityProcess.fork(path.join(here, '..', 'audio', 'worker.js'), [], { serviceName: 'Voice Control speech' });
-  audio.on('message', (m: { type: string; text?: string; on?: boolean; message?: string; ms?: number; seconds?: number }) => {
+  audio.on('message', (m: { type: string; text?: string; raw?: string; db?: number; on?: boolean; message?: string; ms?: number; seconds?: number }) => {
     if (m.type === 'ready') { log('speech models loaded'); ui('mic-ready'); }
     else if (m.type === 'speech') { ui('vad', m.on); convo.onSpeech(!!m.on); }
     else if (m.type === 'text') {
-      log(`stt ${m.seconds?.toFixed(1)}s audio → ${m.ms}ms [${convo.mode}]:`, m.text || '(noise)');
+      log(`stt ${m.seconds?.toFixed(1)}s audio, ${m.db} dB → ${m.ms}ms [${convo.mode}]:`, m.text || `(noise${m.raw ? `: "${m.raw}"` : ''})`);
       convo.onText(m.text ?? '');
     }
     else if (m.type === 'error') { log('speech error:', m.message); ui('reply', `Speech error: ${m.message}`); }

@@ -1,5 +1,5 @@
 import type { AgentStatus, Host } from '../brain/host.js';
-import { isEcho, isGoodbye, isStop, matchWake, parseYesNo } from '../audio/wake.js';
+import { isGoodbye, isStop, matchWake, parseYesNo, stripEcho } from '../audio/wake.js';
 
 /** How long after the assistant stops talking its voice may still reach the mic. */
 const ECHO_TAIL_MS = 1500;
@@ -74,6 +74,7 @@ export class Conversation {
   }
 
   private setMode(m: Conversation['mode']) {
+    if (m !== this.mode) this.fx.log(`→ ${m}${m === 'listening' && this.active ? ' (conversation)' : ''}`);
     this.mode = m;
     clearTimeout(this.listenTimer);
     if (m === 'listening') {
@@ -141,11 +142,14 @@ export class Conversation {
   onText(text: string) {
     if (this.suspectEcho) {
       this.suspectEcho = false;
-      if (!text || isEcho(text, this.spokenText)) {
+      const yours = text ? stripEcho(text, this.spokenText) : '';
+      if (!yours) {
         this.fx.log('ignored own voice:', text || '(noise)');
         if (this.mode === 'listening' && !this.buffer) this.armListenTimer();
         return;
       }
+      if (yours !== text) this.fx.log('removed own voice, kept:', yours);
+      text = yours;
       if (this.speaking) {
         // Real interruption? Needs a stop word or a few words that aren't its own.
         if (!isStop(text) && words(text) < 3) {

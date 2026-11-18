@@ -51,15 +51,19 @@ function init(modelsDir: string, whisper: string) {
 // Whisper "hears" these in silence or noise.
 const HALLUCINATIONS = /^(\[.*\]|\(.*\)|\*.*|♪.*|thank you\.?|thanks for watching!?|you|bye\.?|\.+|okay\.?)$/i;
 
-function transcribe(samples: Float32Array): string {
+/** Returns the cleaned text ('' for noise) plus Whisper's raw output and the loudness, for the log. */
+function transcribe(samples: Float32Array): { text: string; raw: string; db: number } {
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  const db = Math.round(20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9));
   const stream = recognizer.createStream();
   stream.acceptWaveform({ samples, sampleRate: 16000 });
   recognizer.decode(stream);
-  const text = String(recognizer.getResult(stream).text ?? '').trim();
-  if (HALLUCINATIONS.test(text)) return '';
+  const raw = String(recognizer.getResult(stream).text ?? '').trim();
+  if (HALLUCINATIONS.test(raw)) return { text: '', raw, db };
   // Drop sound labels like "(buzzing)", "[music]", "*cough*" (even if cut off), then require real words.
-  const words = text.replace(/[([*♪][^)\]*♪]*([)\]*♪]|$)/g, ' ').replace(/[^a-zA-Z' ]+/g, ' ').trim();
-  return /[a-zA-Z]{2,}/.test(words) ? text : '';
+  const words = raw.replace(/[([*♪][^)\]*♪]*([)\]*♪]|$)/g, ' ').replace(/[^a-zA-Z' ]+/g, ' ').trim();
+  return { text: /[a-zA-Z]{2,}/.test(words) ? raw : '', raw, db };
 }
 
 let buffer = new Float32Array(0);
@@ -86,8 +90,8 @@ function onAudio(chunk: Float32Array) {
     vad.pop();
     const samples: Float32Array = seg.samples;
     const t = Date.now();
-    const text = transcribe(samples);
-    send({ type: 'text', text, seconds: samples.length / 16000, ms: Date.now() - t });
+    const { text, raw, db } = transcribe(samples);
+    send({ type: 'text', text, raw, db, seconds: samples.length / 16000, ms: Date.now() - t });
   }
 }
 
