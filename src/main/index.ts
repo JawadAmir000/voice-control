@@ -33,7 +33,12 @@ function fx(channel: string, payload?: unknown) {
 }
 
 // ---------------------------------------------------------------- speech output
-// The orb window speaks with Windows voices; we wait for it to report the end.
+// Replies are spoken by a local Piper voice (voice process) and played inside the orb window,
+// so echo cancellation keeps the assistant's voice out of the mic. If the voice model is
+// missing, it falls back to Windows speech (which the mic will hear on speakers).
+let voiceProc: UtilityProcess | undefined;
+let voiceReady = false;
+let speakId = 0;
 let speakingDone: (() => void) | undefined;
 let speakSafety: NodeJS.Timeout | undefined;
 let speakText = '';
@@ -41,7 +46,20 @@ let speakText = '';
 function armSpeakSafety() {
   clearTimeout(speakSafety);
   const done = speakingDone;
-  speakSafety = setTimeout(() => { if (speakingDone === done) done?.(); }, 4000 + speakText.length * 120);
+  speakSafety = setTimeout(() => { if (speakingDone === done) done?.(); }, 6000 + speakText.length * 120);
+}
+
+function startVoice() {
+  voiceProc = utilityProcess.fork(path.join(here, '..', 'audio', 'tts-worker.js'), [], { serviceName: 'Voice Control voice' });
+  voiceProc.on('message', (m: { type: string; id?: number; samples?: Float32Array; sampleRate?: number; last?: boolean; ms?: number; message?: string }) => {
+    if (m.type === 'ready') { voiceReady = true; log(`voice ready (${cfg.ttsVoice})`); }
+    else if (m.type === 'chunk') {
+      if (m.id !== speakId) return; // cancelled
+      ui('tts-chunk', { id: m.id, samples: m.samples, sampleRate: m.sampleRate, last: m.last });
+    } else if (m.type === 'error') { log('voice error, using Windows speech:', m.message); voiceReady = false; }
+  });
+  voiceProc.on('exit', (code) => { voiceReady = false; log('voice process exited', code); if (!quitting && code !== 0) setTimeout(startVoice, 2000); });
+  voiceProc.postMessage({ type: 'init', modelsDir: path.join(ROOT, 'models'), voice: cfg.ttsVoice, speed: cfg.ttsSpeed });
 }
 
 function speak(text: string): Promise<void> {
@@ -50,7 +68,13 @@ function speak(text: string): Promise<void> {
   return new Promise((resolve) => {
     const done = () => { clearTimeout(speakSafety); speakingDone = undefined; resolve(); };
     speakingDone = done;
-    ui('speak', { text, voice: cfg.voice });
+    const id = ++speakId;
+    if (voiceReady && cfg.ttsVoice) {
+      ui('tts-start', { id });
+      voiceProc!.postMessage({ type: 'speak', id, text });
+    } else {
+      ui('speak', { text, voice: cfg.voice }); // Windows speech fallback
+    }
     armSpeakSafety();
   });
 }
@@ -59,7 +83,11 @@ function tts(cmd: 'pause' | 'resume' | 'cancel') {
   ui('tts', cmd);
   if (cmd === 'pause') clearTimeout(speakSafety);
   if (cmd === 'resume') armSpeakSafety();
-  if (cmd === 'cancel') setTimeout(() => speakingDone?.(), 300); // in case the voice never reports back
+  if (cmd === 'cancel') {
+    voiceProc?.postMessage({ type: 'cancel', id: speakId });
+    speakId++; // drop any chunks still on their way
+    setTimeout(() => speakingDone?.(), 300); // in case the player never reports back
+  }
 }
 
 // ---------------------------------------------------------------- conversation
@@ -226,6 +254,7 @@ app.whenReady().then(() => {
   brain = new Brain(convo.host, { model: cfg.model, userName: cfg.userName, log });
   brain.start();
   startAudio();
+  if (cfg.ttsVoice) startVoice();
   convo.setPaused(false); // shows the idle status
   log(`Ready. Say "${cfg.wakeWord}" or press ${activeHotkey}. Conversation mode ${cfg.conversation ? 'on' : 'off'}, interrupting ${cfg.bargeIn ? 'on' : 'off'}.`);
 });
@@ -236,5 +265,6 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   brain?.stop();
   audio?.kill();
+  voiceProc?.kill();
   ps.stop();
 });

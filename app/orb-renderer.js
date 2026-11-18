@@ -45,7 +45,10 @@
     );
   }
 
+  let skip = 0;
   function frame(now) {
+    // Idle: 30 fps is plenty for a slow breathing animation and halves the cost.
+    if ((state === 'idle' || state === 'paused') && level < 0.02 && ++skip % 2) { requestAnimationFrame(frame); return; }
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const target = STATES[state] || STATES.idle;

@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const sherpa = require('sherpa-onnx-node');
+import { isRepetitive } from './clean.js';
 
 type Msg = { type: 'init'; modelsDir: string; whisper: string } | { type: 'audio'; samples: Float32Array } | { type: 'mute'; on: boolean } | { type: 'reset' };
 
@@ -29,7 +30,7 @@ function init(modelsDir: string, whisper: string) {
   }
   vad = new sherpa.Vad(
     {
-      sileroVad: { model: vadModel, threshold: 0.5, minSpeechDuration: 0.25, minSilenceDuration: 0.7, maxSpeechDuration: 25, windowSize: 512 },
+      sileroVad: { model: vadModel, threshold: 0.5, minSpeechDuration: 0.25, minSilenceDuration: 0.7, maxSpeechDuration: 15, windowSize: 512 },
       sampleRate: 16000,
       numThreads: 1,
       debug: false,
@@ -60,7 +61,7 @@ function transcribe(samples: Float32Array): { text: string; raw: string; db: num
   stream.acceptWaveform({ samples, sampleRate: 16000 });
   recognizer.decode(stream);
   const raw = String(recognizer.getResult(stream).text ?? '').trim();
-  if (HALLUCINATIONS.test(raw)) return { text: '', raw, db };
+  if (HALLUCINATIONS.test(raw) || isRepetitive(raw)) return { text: '', raw: raw.slice(0, 80), db };
   // Drop sound labels like "(buzzing)", "[music]", "*cough*" (even if cut off), then require real words.
   const words = raw.replace(/[([*♪][^)\]*♪]*([)\]*♪]|$)/g, ' ').replace(/[^a-zA-Z' ]+/g, ' ').trim();
   return { text: /[a-zA-Z]{2,}/.test(words) ? raw : '', raw, db };

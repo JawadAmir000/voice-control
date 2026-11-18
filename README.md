@@ -4,7 +4,7 @@ Control your Windows PC by talking to it. Say **"Hey Computer, open Visual Studi
 
 - **Speech recognition is local and free.** It uses Silero VAD + Whisper through sherpa-onnx, so your audio never leaves the PC.
 - **The brain is Claude.** It uses the Claude Agent SDK, signed in with your Claude subscription (no API key). Every command counts toward your subscription's usage limits.
-- **Replies are spoken** with the built-in Windows voices.
+- **Replies are spoken** by a natural local voice (Piper "lessac", free and offline). It plays inside the app, so the microphone's echo cancellation removes it: the assistant doesn't hear itself on laptop speakers, and you can talk over it.
 
 ## Setup (once)
 
@@ -22,7 +22,7 @@ npm.cmd run models
 npm.cmd run login
 ```
 
-`models` downloads about 200 MB of speech models into `models/`. `login` opens a browser to sign in with your Claude account. Check it with `npm.cmd run login-status`.
+`models` downloads about 270 MB of speech models into `models/`: voice detection, Whisper speech recognition and the Piper voice. `login` opens a browser to sign in with your Claude account. Check it with `npm.cmd run login-status`.
 
 ## Run
 
@@ -94,7 +94,8 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
 - `followUpSeconds`: how long it keeps listening after you go quiet. `endOfSpeechMs`: raise it (for example to 1200) if it still acts before you finish a sentence.
 - `model`: `sonnet` is fast. `opus` is smarter but slower and uses more of your limits.
 - `whisper`: for better accuracy run `npm.cmd run models -- small.en`, then set `"small.en"`.
-- `voice`: part of a Windows voice name, for example `"Aria"`.
+- `ttsVoice`: the Piper voice (`"en_US-lessac-medium"`). Set it to `""` to use Windows speech instead. `ttsSpeed`: 1.1 speaks a bit faster.
+- `voice`: part of a Windows voice name, for the Windows-speech fallback.
 - Restart the app after editing.
 
 ## How it works

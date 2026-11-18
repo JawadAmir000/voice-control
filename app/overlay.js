@@ -55,10 +55,16 @@ bridge.on('config', ({ assistantName }) => { if (assistantName) $('brand').textC
 const bars = [...document.querySelectorAll('#bars i')];
 let target = 0, lv = 0;
 bridge.on('level', (v) => (target = v));
+let shownLv = -1;
 function tick(now) {
-  lv += (target - lv) * 0.25;
-  root.style.setProperty('--lv', lv.toFixed(3));
-  if (state === 'listening' || state === 'speaking') {
+  const voice = state === 'listening' || state === 'speaking';
+  lv += ((voice ? target : 0) - lv) * 0.25;
+  // Only touch the style when the level visibly changes (each change repaints the glow).
+  if (Math.abs(lv - shownLv) > 0.02 || (lv < 0.01 && shownLv !== 0)) {
+    shownLv = lv < 0.01 ? 0 : lv;
+    root.style.setProperty('--lv', shownLv.toFixed(2));
+  }
+  if (voice) {
     bars.forEach((b, i) => { b.style.height = 3 + lv * 13 * (0.45 + 0.55 * Math.abs(Math.sin(now / 140 + i * 1.3))) + 'px'; });
   }
   requestAnimationFrame(tick);

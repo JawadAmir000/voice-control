@@ -61,6 +61,15 @@ describe('conversation mode', () => {
     expect(w.sent).toEqual(['open Claude and start a new session']);
   });
 
+  it('still runs your request when background noise follows it (real log: "(buzzing)")', async () => {
+    const w = setup();
+    w.c.toggle();
+    w.talk('go to the browser and open YouTube and play a song');
+    w.talk(''); // Whisper heard only "(buzzing)" before the 1 s wait finished
+    await vi.advanceTimersByTimeAsync(800);
+    expect(w.sent).toEqual(['go to the browser and open YouTube and play a song']);
+  });
+
   it('does not time out while you are still talking', async () => {
     const w = setup();
     w.c.toggle();
@@ -253,5 +262,38 @@ describe('personal greeting', () => {
     await vi.advanceTimersByTimeAsync(1100);
     expect(w.spoken[0]).toMatch(/Jawad/);
     expect(w.sent).toEqual([]);
+  });
+});
+
+describe('late echoes (slow transcription, real log)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  it('ignores the echo of an EARLIER reply that arrives while it speaks the next one', async () => {
+    const w = setup();
+    const replies = [
+      "I couldn't find a clear match on YouTube. Both times I asked, the microphone picked up my own voice instead of yours, so please tell me the artist.",
+      "Jawad, the mic keeps hearing my own voice instead of yours, so I can't get the song name.",
+    ];
+    let n = 0;
+    w.setReply(() => replies[n++]);
+    w.talk('Hey computer, play Hudulaya on YouTube');
+    await vi.advanceTimersByTimeAsync(1100);
+    w.c.onSpeech(true); w.c.onSpeech(false); // echo of reply 1 recorded…
+    await w.endSpeech();
+    w.talk('try again please'); // you
+    await vi.advanceTimersByTimeAsync(1100); // reply 2 is now playing
+    w.c.onText('Both times I asked, the microphone picked up my own voice instead of yours, so please tell me the artist.'); // …transcribed late
+    expect(w.ttsCmds).toEqual([]); // not taken as an interruption
+    expect(w.sent).toEqual(['play Hudulaya on YouTube', 'try again please']);
+  });
+});
+
+import { sentences } from '../src/audio/sentences.js';
+describe('voice sentence splitting', () => {
+  it('splits into sentences and breaks very long ones at commas', () => {
+    expect(sentences("Hi, Jawad! I'm your assistant. How can I help?")).toEqual(['Hi, Jawad!', "I'm your assistant.", 'How can I help?']);
+    const long = sentences('I can open programs and sites, draft and type text, find and tidy your files, run whole tasks on your PC, check your email, organize your downloads folder, and much more for you today');
+    expect(long.length).toBeGreaterThan(1);
+    expect(long.every((p) => p.length <= 180)).toBe(true);
+    expect(sentences('')).toEqual([]);
   });
 });

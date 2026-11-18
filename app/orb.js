@@ -123,10 +123,62 @@ bridge.on('heard', (t) => { if (mainStatus === 'confirming') setText($('you'), t
 bridge.on('transcript-live', (t) => { $('you').textContent = t; $('reply').textContent = ''; clearInterval(typeTimer); showCard(); });
 bridge.on('queued', (t) => { $('detail').textContent = `Next: ${t}`; });
 bridge.on('tts', (cmd) => {
-  if (cmd === 'pause') speechSynthesis.pause();
-  else if (cmd === 'resume') speechSynthesis.resume();
-  else if (cmd === 'cancel') speechSynthesis.cancel();
+  if (cmd === 'pause') { speechSynthesis.pause(); playCtx?.suspend(); }
+  else if (cmd === 'resume') { speechSynthesis.resume(); playCtx?.resume(); }
+  else if (cmd === 'cancel') { speechSynthesis.cancel(); stopPlayer(true); }
 });
+
+// ---------- in-app voice player (Piper audio from the voice process) ----------
+// Played through this page's audio, so the browser's echo cancellation removes it from the mic.
+let playCtx, playAn, playBuf, playId = -1, nextAt = 0, sources = [], gotLast = false;
+function ensurePlayer() {
+  if (!playCtx) {
+    playCtx = new AudioContext();
+    playAn = playCtx.createAnalyser();
+    playAn.fftSize = 1024;
+    playBuf = new Float32Array(playAn.fftSize);
+    playAn.connect(playCtx.destination);
+  }
+  if (playCtx.state === 'suspended') playCtx.resume();
+}
+function finishPlayback() {
+  if (playId < 0) return;
+  playId = -1;
+  speaking = false;
+  render();
+  bridge.speakDone();
+}
+function stopPlayer(report) {
+  for (const src of sources) { try { src.onended = null; src.stop(); } catch {} }
+  sources = [];
+  if (report) finishPlayback();
+}
+bridge.on('tts-start', ({ id }) => { stopPlayer(false); playId = id; gotLast = false; nextAt = 0; ensurePlayer(); });
+bridge.on('tts-chunk', ({ id, samples, sampleRate, last }) => {
+  if (id !== playId) return;
+  const data = samples instanceof Float32Array ? samples : new Float32Array(samples);
+  if (data.length) {
+    const buf = playCtx.createBuffer(1, data.length, sampleRate);
+    buf.copyToChannel(data, 0);
+    const src = playCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(playAn);
+    const at = Math.max(playCtx.currentTime + 0.03, nextAt); // queue sentences back to back
+    src.start(at);
+    nextAt = at + buf.duration;
+    sources.push(src);
+    src.onended = () => { sources = sources.filter((x) => x !== src); if (gotLast && sources.length === 0) finishPlayback(); };
+    if (!speaking) { speaking = true; speechStart = performance.now(); render(); }
+  }
+  if (last) { gotLast = true; if (sources.length === 0) finishPlayback(); }
+});
+function playerLevel() {
+  playAn.getFloatTimeDomainData(playBuf);
+  let sum = 0;
+  for (let i = 0; i < playBuf.length; i++) sum += playBuf[i] * playBuf[i];
+  const db = 20 * Math.log10(Math.sqrt(sum / playBuf.length) + 1e-9);
+  return Math.max(0, Math.min(1, (db + 45) / 32));
+}
 bridge.on('reply', (t) => { typeReply(t); showCard(); });
 bridge.on('vad', (on) => { voiceActive = on; });
 bridge.on('confirm', (q) => {
@@ -216,8 +268,10 @@ function tick(now) {
   const st = visualState();
   let lv = 0;
   if (st === 'listening' || st === 'confirming') lv = micLevel();
-  else if (st === 'speaking') {
-    // Synthetic voice envelope: word kicks + syllable wobble.
+  else if (st === 'speaking' && sources.length) {
+    lv = playerLevel(); // the real voice loudness
+  } else if (st === 'speaking') {
+    // Windows speech fallback: synthetic envelope (word kicks + syllable wobble).
     speechEnv *= 0.9;
     const s = (now - speechStart) / 1000;
     lv = Math.min(1, 0.22 + speechEnv * 0.55 + 0.18 * Math.abs(Math.sin(s * 11.3) * Math.sin(s * 4.1 + 1)));

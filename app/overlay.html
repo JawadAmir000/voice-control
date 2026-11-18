@@ -6,7 +6,6 @@
 <title>Voice Control Overlay</title>
 <style>
   /* Animatable custom properties: colours and angle tween smoothly between states. */
-  @property --a  { syntax: '<angle>'; inherits: true; initial-value: 0deg; }
   @property --c1 { syntax: '<color>'; inherits: true; initial-value: #4f5bd5; }
   @property --c2 { syntax: '<color>'; inherits: true; initial-value: #7c5cff; }
   @property --c3 { syntax: '<color>'; inherits: true; initial-value: #1fb6d6; }
@@ -19,13 +18,18 @@
     --spin: 6s;   /* rotation speed of the gradient */
     transition: --c1 .9s, --c2 .9s, --c3 .9s, --c4 .9s;
   }
-  .grad { background: conic-gradient(from var(--a), var(--c1), var(--c2), var(--c3), var(--c4), var(--c2), var(--c1)); animation: spin var(--spin) linear infinite; }
-  @keyframes spin { to { --a: 360deg; } }
+  /* The gradient is painted once and rotated on the GPU (transform), so it costs almost nothing per frame. */
+  .grad { background: conic-gradient(var(--c1), var(--c2), var(--c3), var(--c4), var(--c2), var(--c1)); }
+  .spin { position: absolute; left: 50%; top: 50%; width: 160vmax; height: 160vmax; margin: -80vmax 0 0 -80vmax; animation: rot var(--spin) linear infinite; will-change: transform; }
+  #dot.grad { animation: rot var(--spin) linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  /* Hidden = fully paused: nothing animates or repaints while the assistant is idle. */
+  body:not(.on) .spin, body:not(.on) #dot, body:not(.on) .shimmer { animation-play-state: paused; }
 
   /* ---------- screen-edge glow ---------- */
-  #edge { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .7s cubic-bezier(.22,1,.36,1); }
-  body.on #edge { opacity: 1; }
-  .ring { position: absolute; inset: 0; }
+  #edge { position: fixed; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .7s cubic-bezier(.22,1,.36,1), visibility 0s .7s; }
+  body.on #edge { opacity: 1; visibility: visible; transition: opacity .7s cubic-bezier(.22,1,.36,1); }
+  .ring { position: absolute; inset: 0; overflow: hidden; }
   /* Thin crisp line right at the screen edge. */
   .ring.line {
     padding: 2.5px; opacity: .95;
@@ -41,7 +45,7 @@
       linear-gradient(to top,    #000, transparent var(--g));
   }
   .ring.soft { --g: calc(26px + var(--lv) * 34px); opacity: calc(.62 + var(--lv) * .3); }
-  .ring.wide { --g: calc(90px + var(--lv) * 90px); opacity: calc(.16 + var(--lv) * .22); }
+  .ring.wide { --g: 120px; opacity: .2; }
 
   /* ---------- top status pill ---------- */
   #hud {
@@ -82,9 +86,9 @@
 </head>
 <body>
   <div id="edge">
-    <div class="ring wide grad"></div>
-    <div class="ring soft grad"></div>
-    <div class="ring line grad"></div>
+    <div class="ring wide"><div class="spin grad"></div></div>
+    <div class="ring soft"><div class="spin grad"></div></div>
+    <div class="ring line"><div class="spin grad"></div></div>
   </div>
   <div id="hud">
     <div id="dot" class="grad"></div>

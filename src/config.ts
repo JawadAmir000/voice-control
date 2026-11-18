@@ -27,6 +27,10 @@ export type Config = {
   speak: boolean;
   /** Name of a Windows voice to use, or "" for the default. */
   voice: string;
+  /** Local Piper voice for replies (played in-app, so the mic doesn't hear it); "" = Windows speech. */
+  ttsVoice: string;
+  /** Speaking speed for the Piper voice (1 = normal, 1.1 = a bit faster). */
+  ttsSpeed: number;
   /** Glow around the screen edges + status pill + click ripples while the AI works. */
   screenGlow: boolean;
   /** Start with Windows. */
@@ -47,6 +51,8 @@ export const DEFAULTS: Config = {
   endOfSpeechMs: 1000,
   speak: true,
   voice: '',
+  ttsVoice: 'en_US-lessac-medium',
+  ttsSpeed: 1,
   screenGlow: true,
   autostart: false,
 };

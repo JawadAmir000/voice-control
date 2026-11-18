@@ -96,3 +96,12 @@ describe('greeting', () => {
     expect(greetingFor('', new Date(2026, 10, 17, 14, 0), 0)).toMatch(/^Good afternoon! I'm/);
   });
 });
+
+import { isRepetitive } from '../src/audio/clean.js';
+describe('whisper repetition loops', () => {
+  it('drops looping hallucinations but keeps normal speech', () => {
+    expect(isRepetitive('If you spend 15 minutes a day doing something for you doing something for you doing something for you doing something for you doing something for you doing something')).toBe(true);
+    expect(isRepetitive('So I want to learn about yourself, who are you and how are you doing this stuff like what is the brain behind you which kind of model you are using.')).toBe(false);
+    expect(isRepetitive('open notepad')).toBe(false);
+  });
+});

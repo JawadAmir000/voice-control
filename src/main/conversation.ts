@@ -60,11 +60,15 @@ export class Conversation {
   private queued = '';
   private pendingAnswer?: (text: string) => void;
   private speaking = false;
-  private spokenText = '';
+  /** Everything said recently: late echoes of an earlier sentence must still be recognised. */
+  private spokenHistory: { text: string; at: number }[] = [];
   /** When the assistant last stopped speaking (ms). */
   private spokeUntil = 0;
-  /** The current utterance began while the assistant was speaking (or just after): it may be its own echo. */
-  private suspectEcho = false;
+  /**
+   * One flag per recorded utterance, in order: did it begin while the assistant was speaking
+   * (or just after)? Transcripts can arrive seconds later, so the flag travels with the clip.
+   */
+  private suspectQueue: boolean[] = [];
   private bargeText?: string;
   private userTalking = false;
   private stopped = false;
@@ -111,7 +115,7 @@ export class Conversation {
     this.fx.ui('reply', text);
     if (!this.opts.speak || !text) return undefined;
     this.speaking = true;
-    this.spokenText = text;
+    this.spokenHistory.push({ text, at: Date.now() });
     this.bargeText = undefined;
     if (!this.opts.bargeIn) this.fx.mute(true);
     try {
@@ -126,6 +130,13 @@ export class Conversation {
     return b;
   }
 
+  /** What the assistant said in the last minute (for spotting its own echo). */
+  private recentlySpoken(): string {
+    const since = Date.now() - 60_000;
+    this.spokenHistory = this.spokenHistory.filter((h) => h.at >= since || h === this.spokenHistory.at(-1));
+    return this.spokenHistory.map((h) => h.text).join(' ');
+  }
+
   // ---------------------------------------------------------------- input from the speech worker
 
   /** Voice activity started/stopped (before transcription). */
@@ -136,7 +147,8 @@ export class Conversation {
       clearTimeout(this.settleTimer);
       // Speakers feed the assistant's voice back into the mic. Anything that starts while it
       // talks (or right after) is checked against what it said before being trusted.
-      this.suspectEcho = this.speaking || Date.now() - this.spokeUntil < ECHO_TAIL_MS;
+      this.suspectQueue.push(this.speaking || Date.now() - this.spokeUntil < ECHO_TAIL_MS);
+      if (this.suspectQueue.length > 20) this.suspectQueue.shift();
     } else if (this.mode === 'listening' && !this.buffer) {
       this.armListenTimer();
     }
@@ -144,13 +156,12 @@ export class Conversation {
 
   /** A finished utterance from Whisper ('' if it was only noise). */
   onText(text: string) {
-    if (this.suspectEcho) {
-      this.suspectEcho = false;
-      const yours = text ? stripEcho(text, this.spokenText) : '';
+    const suspect = this.suspectQueue.length ? this.suspectQueue.shift()! : this.speaking;
+    if (suspect) {
+      const yours = text ? stripEcho(text, this.recentlySpoken()) : '';
       if (!yours) {
         this.fx.log('ignored own voice:', text || '(noise)');
-        if (this.mode === 'listening' && !this.buffer) this.armListenTimer();
-        return;
+        return this.nothingNew();
       }
       if (yours !== text) this.fx.log('removed own voice, kept:', yours);
       text = yours;
@@ -166,12 +177,24 @@ export class Conversation {
         return;
       }
     }
-    if (!text) {
-      if (this.mode === 'listening' && !this.buffer) this.armListenTimer();
-      return;
-    }
+    if (!text) return this.nothingNew();
     this.fx.ui('heard', text);
     this.route(text);
+  }
+
+  /**
+   * A sound turned out to be noise or echo. Any voice activity cancelled the pending
+   * "you've finished talking" timer, so restart it — otherwise a half-collected command
+   * would wait forever (a "(buzzing)" right after you spoke used to swallow your request).
+   */
+  private nothingNew() {
+    if (this.mode !== 'listening') return;
+    if (this.buffer) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = setTimeout(() => this.flush(), this.opts.settleMs);
+    } else {
+      this.armListenTimer();
+    }
   }
 
   private route(text: string) {
