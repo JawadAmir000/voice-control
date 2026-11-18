@@ -88,14 +88,22 @@ function typeReply(text) {
 }
 
 // ---------- events from the app ----------
-bridge.on('status', ({ status, detail }) => {
+bridge.on('status', ({ status, detail, conversation }) => {
   mainStatus = status;
-  $('detail').textContent = detail && status !== 'listening' ? detail : '';
-  if (status === 'listening') { setText($('you'), ''); setText($('reply'), ''); }
+  $('detail').textContent = detail || '';
+  card.classList.toggle('convo', !!conversation && status !== 'idle' && status !== 'paused');
   render();
 });
 bridge.on('transcript', (t) => { setText($('you'), t); setText($('reply'), ''); showCard(); });
-bridge.on('heard', (t) => { if (mainStatus === 'listening' || mainStatus === 'confirming') setText($('you'), t); });
+bridge.on('heard', (t) => { if (mainStatus === 'confirming') setText($('you'), t); });
+// Your words appear as you speak (one phrase at a time), before the command runs.
+bridge.on('transcript-live', (t) => { $('you').textContent = t; $('reply').textContent = ''; clearInterval(typeTimer); showCard(); });
+bridge.on('queued', (t) => { $('detail').textContent = `Next: ${t}`; });
+bridge.on('tts', (cmd) => {
+  if (cmd === 'pause') speechSynthesis.pause();
+  else if (cmd === 'resume') speechSynthesis.resume();
+  else if (cmd === 'cancel') speechSynthesis.cancel();
+});
 bridge.on('reply', (t) => { typeReply(t); showCard(); });
 bridge.on('vad', (on) => { voiceActive = on; });
 bridge.on('confirm', (q) => {
@@ -238,7 +246,7 @@ if (preview) {
   micLevel = () => (shown === 'listening' ? (fake = fake * 0.8 + Math.random() * 0.35 * (Math.sin(performance.now() / 300) > -0.3 ? 1 : 0.1)) : 0.02);
   const steps = [
     () => { bridge.emit('status', { status: 'idle' }); },
-    () => { chime(); bridge.emit('status', { status: 'listening' }); },
+    () => { chime(); bridge.emit('status', { status: 'listening', conversation: true, detail: 'Just talk — say “that’s all” when you’re done' }); },
     () => { bridge.emit('transcript', 'Open Claude and start a new session'); bridge.emit('status', { status: 'thinking', detail: 'Open Claude and start a new session' }); },
     () => { bridge.emit('status', { status: 'acting', detail: 'Opening Claude' }); },
     () => { bridge.emit('status', { status: 'confirming' }); bridge.emit('confirm', 'I\'m about to click "Send". Should I go ahead?'); },
@@ -248,7 +256,7 @@ if (preview) {
   if (only) {
     // ?state=thinking etc. pins one state (used for screenshots)
     if (only === 'speaking') { speaking = true; setInterval(() => (speechEnv = 0.8 + Math.random() * 0.2), 260); }
-    bridge.emit('status', { status: only === 'speaking' ? 'idle' : only, detail: only === 'acting' ? 'Opening Claude' : '' });
+    bridge.emit('status', { status: only === 'speaking' ? 'idle' : only, detail: only === 'acting' ? 'Opening Claude' : only === 'listening' ? 'Just talk — say “that’s all” when you’re done' : '', conversation: only !== 'idle' });
     bridge.emit('transcript', 'Open Claude and start a new session');
     if (only === 'confirming') bridge.emit('confirm', 'I\'m about to click "Send". Should I go ahead?');
     showCard();

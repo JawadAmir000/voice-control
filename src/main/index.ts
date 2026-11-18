@@ -2,10 +2,10 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen,
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Brain } from '../brain/agent.js';
-import type { AgentStatus, Host } from '../brain/host.js';
-import { isStop, matchWake, parseYesNo } from '../audio/wake.js';
+import type { AgentStatus } from '../brain/host.js';
 import { CONFIG_FILE, loadConfig, saveConfig } from '../config.js';
 import { ps } from '../win/ps.js';
+import { Conversation } from './conversation.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..', '..');
@@ -19,164 +19,90 @@ let orb: BrowserWindow;
 let tray: Tray;
 let audio: UtilityProcess | undefined;
 let brain: Brain;
-let paused = false;
 let activeHotkey = '';
-
-/**
- * Voice state machine
- *   idle       – waiting for the wake word (or hotkey)
- *   listening  – the next thing said is a command
- *   busy       – Claude is working; only "stop" is listened for
- *   awaiting   – Claude asked a question / wants a yes or no
- */
-type Mode = 'idle' | 'listening' | 'busy' | 'awaiting';
-let mode: Mode = 'idle';
-let listenTimer: NodeJS.Timeout | undefined;
-let pendingAnswer: ((text: string) => void) | undefined;
-let speakingDone: (() => void) | undefined;
+let quitting = false;
 
 function ui(channel: string, payload?: unknown) {
   if (orb && !orb.isDestroyed()) orb.webContents.send(channel, payload);
 }
 
-function setStatus(s: AgentStatus | 'paused', detail = '') {
-  ui('status', { status: s, detail });
-  tray?.setToolTip(`Voice Control – ${s}${detail ? ': ' + detail : ''}`);
+// ---------------------------------------------------------------- speech output
+// The orb window speaks with Windows voices; we wait for it to report the end.
+let speakingDone: (() => void) | undefined;
+let speakSafety: NodeJS.Timeout | undefined;
+let speakText = '';
+
+function armSpeakSafety() {
+  clearTimeout(speakSafety);
+  const done = speakingDone;
+  speakSafety = setTimeout(() => { if (speakingDone === done) done?.(); }, 4000 + speakText.length * 120);
 }
 
-function setMode(m: Mode) {
-  mode = m;
-  clearTimeout(listenTimer);
-  if (m === 'listening') {
-    setStatus('listening');
-    // Give up if nothing is said for a while.
-    listenTimer = setTimeout(() => { if (mode === 'listening') setMode('idle'); }, 9000);
-  } else if (m === 'idle') {
-    setStatus(paused ? 'paused' : 'idle');
-  }
-  if (m === 'busy') globalShortcut.register('Escape', () => void stopTask());
-  else globalShortcut.unregister('Escape');
-}
-
-/** Speaks text (mic muted meanwhile so it doesn't hear itself). */
-function say(text: string): Promise<void> {
+function speak(text: string): Promise<void> {
   log('say:', text);
-  ui('reply', text);
-  if (!cfg.speak || !text) return Promise.resolve();
-  audio?.postMessage({ type: 'mute', on: true });
+  speakText = text;
   return new Promise((resolve) => {
-    const done = () => { speakingDone = undefined; audio?.postMessage({ type: 'mute', on: false }); resolve(); };
+    const done = () => { clearTimeout(speakSafety); speakingDone = undefined; resolve(); };
     speakingDone = done;
     ui('speak', { text, voice: cfg.voice });
-    setTimeout(() => speakingDone === done && done(), 4000 + text.length * 120); // safety net
+    armSpeakSafety();
   });
 }
 
-/** Waits for the user's next utterance (spoken, or typed / button in the orb). */
-async function waitForAnswer(question: string, timeoutMs: number): Promise<string> {
-  const prev = mode;
-  await say(question);
-  setMode('awaiting');
-  setStatus('confirming', question);
-  return new Promise((resolve) => {
-    const t = setTimeout(() => finish(''), timeoutMs);
-    function finish(text: string) {
-      clearTimeout(t);
-      pendingAnswer = undefined;
-      setMode(prev === 'awaiting' ? 'busy' : prev);
-      if (mode === 'busy') setStatus('thinking');
-      resolve(text);
-    }
-    pendingAnswer = finish;
-  });
+function tts(cmd: 'pause' | 'resume' | 'cancel') {
+  ui('tts', cmd);
+  if (cmd === 'pause') clearTimeout(speakSafety);
+  if (cmd === 'resume') armSpeakSafety();
+  if (cmd === 'cancel') setTimeout(() => speakingDone?.(), 300); // in case the voice never reports back
 }
 
-const host: Host = {
-  status: (s, detail) => { if (mode !== 'awaiting') setStatus(s, detail); },
-  say: (t) => void say(t),
-  ask: (q) => waitForAnswer(q, 30_000),
-  confirm: async (q) => {
-    ui('confirm', q);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const answer = await waitForAnswer(attempt ? 'Please say yes or no.' : q, 20_000);
-      const yn = parseYesNo(answer);
-      if (yn !== 'unknown') { ui('confirm', null); return yn === 'yes'; }
-    }
-    ui('confirm', null);
-    void say('No clear answer, so I did not do it.');
-    return false;
+// ---------------------------------------------------------------- conversation
+
+const convo = new Conversation(
+  {
+    status: (s: AgentStatus | 'paused', detail = '') => {
+      ui('status', { status: s, detail, conversation: convo?.active });
+      tray?.setToolTip(`Voice Control – ${s}${detail ? ': ' + detail : ''}`);
+    },
+    ui,
+    speak,
+    tts,
+    mute: (on) => audio?.postMessage({ type: 'mute', on }),
+    send: (text) => brain.send(text),
+    interrupt: () => brain.interrupt(),
+    escapeKey: (on) => {
+      if (on) globalShortcut.register('Escape', () => void convo.stop());
+      else globalShortcut.unregister('Escape');
+    },
+    log,
   },
-};
-
-async function runCommand(text: string) {
-  text = text.trim();
-  if (!text) return;
-  if (brain.isBusy) { log('busy, ignoring:', text); return; }
-  log('command:', text);
-  ui('transcript', text);
-  setMode('busy');
-  const t = Date.now();
-  const reply = await brain.send(text);
-  log(`done in ${((Date.now() - t) / 1000).toFixed(1)}s:`, reply);
-  setMode('idle');
-  await say(reply);
-  setStatus(paused ? 'paused' : 'idle');
-}
-
-async function stopTask() {
-  if (mode !== 'busy' && mode !== 'awaiting') return;
-  log('stop requested');
-  pendingAnswer?.('no');
-  await brain.interrupt();
-  ui('reply', 'Stopped.');
-}
-
-/** Handles each transcribed utterance from the speech worker. */
-function onHeard(text: string) {
-  if (!text) return;
-  log(`heard [${mode}]:`, text);
-  ui('heard', text);
-  switch (mode) {
-    case 'awaiting':
-      pendingAnswer?.(text);
-      return;
-    case 'busy':
-      if (isStop(text) || isStop(matchWake(text, cfg.wakeWord).rest)) void stopTask();
-      return;
-    case 'listening': {
-      const w = matchWake(text, cfg.wakeWord);
-      void runCommand(w.woke ? w.rest || '' : text);
-      if (w.woke && !w.rest) setMode('listening');
-      return;
-    }
-    case 'idle': {
-      if (paused || !cfg.wakeWordEnabled) return;
-      const w = matchWake(text, cfg.wakeWord);
-      if (!w.woke) return;
-      if (w.rest) void runCommand(w.rest);
-      else { ui('chime'); setMode('listening'); }
-    }
-  }
-}
-
-function hotkey() {
-  if (mode === 'busy' || mode === 'awaiting') return void stopTask();
-  if (mode === 'listening') return setMode('idle');
-  ui('chime');
-  setMode('listening');
-}
+  {
+    wakeWord: cfg.wakeWord,
+    wakeWordEnabled: cfg.wakeWordEnabled,
+    conversation: cfg.conversation,
+    followUpMs: cfg.followUpSeconds * 1000,
+    bargeIn: cfg.bargeIn,
+    speak: cfg.speak,
+    settleMs: cfg.endOfSpeechMs,
+  },
+);
 
 function startAudio() {
   audio = utilityProcess.fork(path.join(here, '..', 'audio', 'worker.js'), [], { serviceName: 'Voice Control speech' });
   audio.on('message', (m: { type: string; text?: string; on?: boolean; message?: string; ms?: number; seconds?: number }) => {
     if (m.type === 'ready') { log('speech models loaded'); ui('mic-ready'); }
-    else if (m.type === 'speech') ui('vad', m.on);
-    else if (m.type === 'text') { log(`stt ${m.seconds?.toFixed(1)}s audio → ${m.ms}ms`); onHeard(m.text ?? ''); }
+    else if (m.type === 'speech') { ui('vad', m.on); convo.onSpeech(!!m.on); }
+    else if (m.type === 'text') {
+      log(`stt ${m.seconds?.toFixed(1)}s audio → ${m.ms}ms [${convo.mode}]:`, m.text || '(noise)');
+      convo.onText(m.text ?? '');
+    }
     else if (m.type === 'error') { log('speech error:', m.message); ui('reply', `Speech error: ${m.message}`); }
   });
   audio.on('exit', (code) => { log('speech worker exited', code); if (quitting || code === 0) return; setTimeout(startAudio, 2000); });
   audio.postMessage({ type: 'init', modelsDir: path.join(ROOT, 'models'), whisper: cfg.whisper });
 }
+
+// ---------------------------------------------------------------- window & tray
 
 function createOrb() {
   const { workArea } = screen.getPrimaryDisplay();
@@ -199,13 +125,21 @@ function createOrb() {
   orb.webContents.on('render-process-gone', (_e, d) => { log('[orb] renderer gone:', d.reason); setTimeout(() => orb.reload(), 1000); });
 }
 
+function toggle(key: 'conversation' | 'bargeIn' | 'speak', on: boolean) {
+  cfg[key] = on;
+  convo.opts[key] = on;
+  saveConfig(cfg);
+}
+
 function updateTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: `Talk now (${activeHotkey || 'no hotkey'})`, click: hotkey },
-    { label: paused ? 'Resume wake word' : 'Pause wake word', click: () => { paused = !paused; setMode('idle'); updateTrayMenu(); } },
+    { label: `Talk now (${activeHotkey || 'no hotkey'})`, click: () => convo.toggle() },
+    { label: convo.paused ? 'Resume wake word' : 'Pause wake word', click: () => { convo.setPaused(!convo.paused); updateTrayMenu(); } },
     { label: orb.isVisible() ? 'Hide orb' : 'Show orb', click: () => { orb.isVisible() ? orb.hide() : orb.showInactive(); updateTrayMenu(); } },
     { type: 'separator' },
-    { label: 'Speak replies', type: 'checkbox', checked: cfg.speak, click: (i) => { cfg.speak = i.checked; saveConfig(cfg); } },
+    { label: 'Conversation mode (keep listening after replies)', type: 'checkbox', checked: cfg.conversation, click: (i) => toggle('conversation', i.checked) },
+    { label: 'Let me interrupt while it speaks', type: 'checkbox', checked: cfg.bargeIn, click: (i) => toggle('bargeIn', i.checked) },
+    { label: 'Speak replies', type: 'checkbox', checked: cfg.speak, click: (i) => toggle('speak', i.checked) },
     { label: 'Start with Windows', type: 'checkbox', checked: cfg.autostart, click: (i) => { cfg.autostart = i.checked; saveConfig(cfg); applyAutostart(); } },
     { label: 'Settings file…', click: () => shell.openPath(CONFIG_FILE) },
     { type: 'separator' },
@@ -223,36 +157,34 @@ app.whenReady().then(() => {
 
   createOrb();
   tray = new Tray(nativeImage.createFromPath(path.join(APP_DIR, 'icon.png')));
-  tray.on('click', hotkey);
-  updateTrayMenu();
-  applyAutostart();
+  tray.on('click', () => convo.toggle());
 
   for (const key of [cfg.hotkey, 'Control+Alt+V', 'Control+Alt+J', 'Control+Shift+F12']) {
-    if (globalShortcut.register(key, hotkey)) { activeHotkey = key; break; }
+    if (globalShortcut.register(key, () => convo.toggle())) { activeHotkey = key; break; }
     log(`Hotkey ${key} is in use by another app, trying the next one`);
   }
   updateTrayMenu();
+  applyAutostart();
 
   ipcMain.on('audio', (_e, samples: Float32Array) => audio?.postMessage({ type: 'audio', samples }));
   ipcMain.on('speak-done', () => speakingDone?.());
   // Give focus back to the user's app so Claude doesn't type into the orb.
-  ipcMain.on('typed', (_e, text: string) => { orb.blur(); if (pendingAnswer) pendingAnswer(text); else void runCommand(text); });
-  ipcMain.on('confirm-answer', (_e, yes: boolean) => { orb.blur(); pendingAnswer?.(yes ? 'yes' : 'no'); });
-  ipcMain.on('orb-click', () => { orb.blur(); hotkey(); });
-  ipcMain.on('stop', () => void stopTask());
+  ipcMain.on('typed', (_e, text: string) => { orb.blur(); convo.typed(text); });
+  ipcMain.on('confirm-answer', (_e, yes: boolean) => { orb.blur(); convo.confirmAnswer(yes); });
+  ipcMain.on('orb-click', () => { orb.blur(); convo.toggle(); });
+  ipcMain.on('stop', () => void convo.stop());
   ipcMain.on('log', (_e, ...a) => log('[orb]', ...a));
   ipcMain.on('interactive', (_e, on: boolean) => orb.setIgnoreMouseEvents(!on, { forward: true }));
   ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord });
 
-  brain = new Brain(host, { model: cfg.model, log });
+  brain = new Brain(convo.host, { model: cfg.model, log });
   brain.start();
   startAudio();
-  setMode('idle');
-  log(`Ready. Say "${cfg.wakeWord}" or press ${activeHotkey}.`);
+  convo.setPaused(false); // shows the idle status
+  log(`Ready. Say "${cfg.wakeWord}" or press ${activeHotkey}. Conversation mode ${cfg.conversation ? 'on' : 'off'}, interrupting ${cfg.bargeIn ? 'on' : 'off'}.`);
 });
 
 app.on('window-all-closed', () => { /* keep running in the tray */ });
-let quitting = false;
 app.on('will-quit', () => {
   quitting = true;
   globalShortcut.unregisterAll();

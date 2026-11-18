@@ -45,9 +45,15 @@ A mic icon appears in the tray and a floating orb appears in the bottom-right co
 - Press **Ctrl+Alt+V**, click the orb, or click the tray icon, then speak.
 - Type into the orb's text box.
 
+**It's a conversation.** Wake it once, then just keep talking. No wake word or click is needed for follow-ups, and Claude remembers context: "open Notepad", then "now type my shopping list", then "save it on the desktop".
+- It waits until you've really finished speaking, so short pauses mid-sentence don't cut you off.
+- Talk over it while it's speaking and it goes quiet and listens to you.
+- Ask for something new while it's working and it does that next.
+- It goes back to sleep after 25 seconds of silence, or when you say "that's all", "bye" or "stop listening". The **LIVE** badge on the card shows the conversation is open.
+
 **Stop a task:** say "stop", press **Esc**, or press the hotkey again.
 
-**Follow-ups work.** The session remembers context, so "open Notepad", then "now type my shopping list", then "save it on the desktop" all work.
+If it keeps interrupting itself (loud speakers, no headphones), turn off **Let me interrupt while it speaks** in the tray menu.
 
 Try typed commands without the voice UI: `npm.cmd run try -- "open notepad and type hello"`.
 
@@ -69,12 +75,17 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
   "model": "sonnet",
   "whisper": "base.en",
   "wakeWordEnabled": true,
+  "conversation": true,
+  "followUpSeconds": 25,
+  "bargeIn": true,
+  "endOfSpeechMs": 700,
   "speak": true,
   "voice": "",
   "autostart": false
 }
 ```
 
+- `followUpSeconds`: how long it keeps listening after you go quiet. `endOfSpeechMs`: raise it (for example to 1200) if it still acts before you finish a sentence.
 - `model`: `sonnet` is fast. `opus` is smarter but slower and uses more of your limits.
 - `whisper`: for better accuracy run `npm.cmd run models -- small.en`, then set `"small.en"`.
 - `voice`: part of a Windows voice name, for example `"Aria"`.

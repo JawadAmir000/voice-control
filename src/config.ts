@@ -13,6 +13,14 @@ export type Config = {
   whisper: string;
   /** Listen for the wake word at all (hotkey always works). */
   wakeWordEnabled: boolean;
+  /** Keep listening after each reply so you can just keep talking (no wake word or click). */
+  conversation: boolean;
+  /** Seconds of silence before it goes back to sleep. */
+  followUpSeconds: number;
+  /** Talking while it speaks interrupts it. Turn off if it keeps interrupting itself on loud speakers. */
+  bargeIn: boolean;
+  /** Pause (ms) after you stop talking before it acts, so short pauses mid-sentence don't cut you off. */
+  endOfSpeechMs: number;
   /** Read replies aloud. */
   speak: boolean;
   /** Name of a Windows voice to use, or "" for the default. */
@@ -28,6 +36,10 @@ export const DEFAULTS: Config = {
   model: 'sonnet',
   whisper: 'base.en',
   wakeWordEnabled: true,
+  conversation: true,
+  followUpSeconds: 25,
+  bargeIn: true,
+  endOfSpeechMs: 700,
   speak: true,
   voice: '',
   autostart: false,

@@ -47,6 +47,25 @@ export function parseYesNo(text: string): 'yes' | 'no' | 'unknown' {
   return 'unknown';
 }
 
+/** "That's all", "bye", "stop listening"… ends a conversation. */
+export function isGoodbye(text: string): boolean {
+  const t = norm(text).replace(/^(hey computer )?(ok |okay |alright )?/, '');
+  return /^((thanks?|thank you)( so much)? )?(that's all|that is all|that's it|bye|bye bye|goodbye|good bye|stop listening|go to sleep|we're done|i'm done|nothing else|no thanks?|no thank you|that will be all)( for now)?( thanks?| thank you)?$/.test(t)
+    || /^(thanks?|thank you)( so much)?( bye| goodbye)$/.test(t);
+}
+
+/**
+ * True when a transcript is just the assistant's own voice picked up by the mic
+ * (most of its words appear in what is being spoken).
+ */
+export function isEcho(heard: string, spoken: string): boolean {
+  const h = norm(heard).split(' ').filter((w) => w.length > 1);
+  if (h.length === 0) return true;
+  const s = new Set(norm(spoken).split(' '));
+  const hits = h.filter((w) => s.has(w)).length;
+  return hits / h.length >= 0.5;
+}
+
 export function isStop(text: string): boolean {
   const t = norm(text);
   return /^(hey computer )?(stop|cancel|abort|never mind|nevermind|stop it|stop stop)$/.test(t);
