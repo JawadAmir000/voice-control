@@ -33,6 +33,8 @@ export interface ConversationOptions {
   speak: boolean;
   /** Your first name, used in greetings. */
   userName?: string;
+  /** A short "Hello" on its own wakes it (default on). */
+  greetToWake?: boolean;
   /** After you stop talking, wait this long for you to continue before acting. */
   settleMs: number;
 }
@@ -217,7 +219,15 @@ export class Conversation {
       case 'idle': {
         if (this.paused || !this.opts.wakeWordEnabled) return;
         const w = matchWake(text, this.opts.wakeWord);
-        if (!w.woke) return;
+        if (!w.woke) {
+          // A short greeting on its own ("Hello.", "Hi there", "Good morning") also wakes it and
+          // gets the introduction. Longer sentences without the wake word (TV, videos, other people) don't.
+          if (this.opts.greetToWake !== false && isGreeting(text) && words(text) <= 4) {
+            this.wake(false);
+            void this.run(text);
+          }
+          return;
+        }
         this.wake(false);
         if (w.rest) this.listen(w.rest);
         // "Hello computer" → introduce yourself. The bare wake phrase ("hey computer") just wakes it.

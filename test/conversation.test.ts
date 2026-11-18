@@ -297,3 +297,23 @@ describe('voice sentence splitting', () => {
     expect(sentences('')).toEqual([]);
   });
 });
+
+describe('greeting wakes it', () => {
+  beforeEach(() => vi.useFakeTimers());
+  it('a plain "Hello." (no wake word) wakes it and introduces itself (real log)', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.talk('Hello.');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(w.spoken[0]).toMatch(/Jawad! I'm your personal AI assistant/);
+    await w.endSpeech();
+    expect(w.c.mode).toBe('listening'); // and keeps listening for your request
+  });
+  it('background speech still does not wake it', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.talk('In other words, they need to be secured to');
+    w.talk('hello and welcome back to the channel everyone');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(w.spoken).toEqual([]);
+    expect(w.c.mode).toBe('idle');
+  });
+});
