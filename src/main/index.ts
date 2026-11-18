@@ -132,7 +132,11 @@ function toggle(key: 'conversation' | 'bargeIn' | 'speak', on: boolean) {
 }
 
 function updateTrayMenu() {
-  tray.setContextMenu(Menu.buildFromTemplate([
+  tray.setContextMenu(buildMenu());
+}
+
+function buildMenu() {
+  return Menu.buildFromTemplate([
     { label: `Talk now (${activeHotkey || 'no hotkey'})`, click: () => convo.toggle() },
     { label: convo.paused ? 'Resume wake word' : 'Pause wake word', click: () => { convo.setPaused(!convo.paused); updateTrayMenu(); } },
     { label: orb.isVisible() ? 'Hide orb' : 'Show orb', click: () => { orb.isVisible() ? orb.hide() : orb.showInactive(); updateTrayMenu(); } },
@@ -144,7 +148,7 @@ function updateTrayMenu() {
     { label: 'Settings file…', click: () => shell.openPath(CONFIG_FILE) },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
-  ]));
+  ]);
 }
 
 function applyAutostart() {
@@ -174,7 +178,9 @@ app.whenReady().then(() => {
   ipcMain.on('orb-click', () => { orb.blur(); convo.toggle(); });
   ipcMain.on('stop', () => void convo.stop());
   ipcMain.on('log', (_e, ...a) => log('[orb]', ...a));
-  ipcMain.on('interactive', (_e, on: boolean) => orb.setIgnoreMouseEvents(!on, { forward: true }));
+  ipcMain.on('quit', () => app.quit());
+  ipcMain.on('orb-menu', () => buildMenu().popup({ window: orb }));
+  ipcMain.on('interactive',(_e, on: boolean) => orb.setIgnoreMouseEvents(!on, { forward: true }));
   ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord });
 
   brain = new Brain(convo.host, { model: cfg.model, log });

@@ -10,4 +10,6 @@ contextBridge.exposeInMainWorld('vc', {
   stop: () => ipcRenderer.send('stop'),
   log: (...a) => ipcRenderer.send('log', ...a),
   setInteractive: (on) => ipcRenderer.send('interactive', on),
+  quit: () => ipcRenderer.send('quit'),
+  menu: () => ipcRenderer.send('orb-menu'),
 });

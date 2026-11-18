@@ -65,11 +65,12 @@
   #eq { display: flex; align-items: center; gap: 2.5px; height: 18px; }
   #eq i { display: block; width: 3px; height: 4px; border-radius: 2px; background: var(--tint-solid, #7c5cff); opacity: .9; transition: background .6s; }
 
-  #close {
+  .iconBtn {
     width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
     color: var(--faint); transition: background .2s, color .2s; flex: none;
   }
-  #close:hover { background: rgba(255,255,255,.08); color: var(--text); }
+  .iconBtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+  #quit:hover { background: rgba(255, 93, 93, .16); color: #ff7b7b; }
 
   /* "Conversation on" badge */
   #live { display: none; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #7ef9ff; border: 1px solid rgba(126,249,255,.35); border-radius: 999px; padding: 1px 7px; flex: none; }
@@ -113,7 +114,10 @@
       <div id="label"><span>Starting</span></div>
       <div id="live" title="Conversation mode: keep talking, no wake word needed">Live</div>
       <div id="eq"><i></i><i></i><i></i><i></i><i></i></div>
-      <div id="close" title="Hide">
+      <div id="quit" class="iconBtn" title="Quit Voice Control">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+      </div>
+      <div id="close" class="iconBtn" title="Hide card">
         <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </div>
     </div>

@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const preview = !window.vc; // opened directly in a browser: run a demo instead of the real app
 const bus = {};
-const bridge = window.vc || { on: (ch, cb) => (bus[ch] = cb), emit: (ch, p) => bus[ch] && bus[ch](p), audio() {},speakDone() {}, typed() {}, confirm() {}, orbClick() {}, stop() {}, log: console.log, setInteractive() {} };
+const bridge = window.vc || { on: (ch, cb) => (bus[ch] = cb), emit: (ch, p) => bus[ch] && bus[ch](p), audio() {},speakDone() {}, typed() {}, confirm() {}, orbClick() {}, stop() {}, log: console.log, setInteractive() {}, quit() {}, menu() {} };
 
 const card = $('card');
 Orb.mount($('orb'));
@@ -213,6 +213,8 @@ requestAnimationFrame(tick);
 // ---------- controls ----------
 $('orb').addEventListener('click', () => { showCard(); chime(); bridge.orbClick(); });
 $('close').addEventListener('click', () => card.classList.add('hidden'));
+$('quit').addEventListener('click', () => bridge.quit());
+$('orb').addEventListener('contextmenu', (e) => { e.preventDefault(); bridge.menu(); });
 $('yes').addEventListener('click', () => bridge.confirm(true));
 $('no').addEventListener('click', () => bridge.confirm(false));
 $('typed').addEventListener('keydown', (e) => {

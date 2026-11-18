@@ -111,24 +111,51 @@ describe('interrupting the assistant', () => {
     expect(w.spoken.length).toBe(1);
 
     w.c.onSpeech(true);
-    expect(w.ttsCmds).toEqual(['pause']); // goes quiet immediately
+    expect(w.ttsCmds).toEqual([]); // keeps talking until it knows it's really you (no stutter)
     w.c.onSpeech(false);
     w.c.onText('Stop, open Chrome instead');
-    expect(w.ttsCmds).toEqual(['pause', 'cancel']);
+    expect(w.ttsCmds).toEqual(['cancel']);
     await vi.advanceTimersByTimeAsync(800);
     expect(w.sent.at(-1)).toBe('Stop, open Chrome instead');
   });
 
-  it('resumes if it only heard its own voice', async () => {
+  it('never pauses or interrupts itself on its own voice (speakers → mic)', async () => {
     const w = setup();
-    w.setReply(() => 'Notepad is open with your text');
+    const reply = 'I can run your PC by voice: open apps, websites, folders and settings pages, type text, click through windows, and manage files.';
+    w.setReply(() => reply);
+    w.talk('Hey computer, what can you do');
+    await vi.advanceTimersByTimeAsync(800);
+    // Real fragments Whisper produced from the speakers in the user's log:
+    for (const f of ['and run your PC by', 'voice open.', 'apps websites', '', 'type', 'text', 'through Windows and', 'manage files', 'two']) w.talk(f);
+    expect(w.ttsCmds).toEqual([]);
+    expect(w.sent).toEqual(['what can you do']);
+  });
+
+  it('does not answer the tail of its own sentence after it stops talking', async () => {
+    const w = setup();
+    w.setReply(() => 'Just tell me what you would like to do first.');
+    w.talk('Hey computer, help');
+    await vi.advanceTimersByTimeAsync(800);
+    w.c.onSpeech(true); // echo of the last words starts while still speaking…
+    await w.endSpeech(); // …voice ends…
+    w.c.onSpeech(false);
+    w.c.onText('like to do first.'); // …and the transcript arrives afterwards
+    await vi.advanceTimersByTimeAsync(1000);
+    w.talk('do'); // a late fragment right after
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(w.sent).toEqual(['help']);
+    expect(w.c.mode).toBe('listening');
+  });
+
+  it('still hears you right after it finishes talking', async () => {
+    const w = setup();
+    w.setReply(() => 'Notepad is open.');
     w.talk('Hey computer, open Notepad');
     await vi.advanceTimersByTimeAsync(800);
-    w.c.onSpeech(true);
-    w.c.onSpeech(false);
-    w.c.onText('Notepad is open');
-    expect(w.ttsCmds).toEqual(['pause', 'resume']);
-    expect(w.sent).toEqual(['open Notepad']);
+    await w.endSpeech();
+    w.talk('now type my shopping list'); // within the echo window, but clearly you
+    await vi.advanceTimersByTimeAsync(800);
+    expect(w.sent).toEqual(['open Notepad', 'now type my shopping list']);
   });
 
   it('"stop" while it is working cancels the task', async () => {

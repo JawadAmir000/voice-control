@@ -1,6 +1,10 @@
 import type { AgentStatus, Host } from '../brain/host.js';
 import { isEcho, isGoodbye, isStop, matchWake, parseYesNo } from '../audio/wake.js';
 
+/** How long after the assistant stops talking its voice may still reach the mic. */
+const ECHO_TAIL_MS = 1500;
+const words = (t: string) => t.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length;
+
 /** Everything the conversation needs from the outside world (Electron, Claude, speech worker). */
 export interface Effects {
   status(s: AgentStatus | 'paused', detail?: string): void;
@@ -48,24 +52,24 @@ export class Conversation {
 
   private listenTimer?: ReturnType<typeof setTimeout>;
   private settleTimer?: ReturnType<typeof setTimeout>;
-  private bargeTimer?: ReturnType<typeof setTimeout>;
   private buffer = '';
   private queued = '';
   private pendingAnswer?: (text: string) => void;
   private speaking = false;
   private spokenText = '';
-  private bargePending = false;
+  /** When the assistant last stopped speaking (ms). */
+  private spokeUntil = 0;
+  /** The current utterance began while the assistant was speaking (or just after): it may be its own echo. */
+  private suspectEcho = false;
   private bargeText?: string;
   private userTalking = false;
   private stopped = false;
-  private lastStatus: { s: AgentStatus | 'paused'; d?: string } = { s: 'idle' };
 
   constructor(private fx: Effects, public opts: ConversationOptions) {}
 
   // ---------------------------------------------------------------- status / modes
 
   private status(s: AgentStatus | 'paused', d?: string) {
-    this.lastStatus = { s, d };
     this.fx.status(s, d);
   }
 
@@ -109,9 +113,8 @@ export class Conversation {
       await this.fx.speak(text);
     } finally {
       this.speaking = false;
-      this.bargePending = false;
-      clearTimeout(this.bargeTimer);
-      if (!this.opts.bargeIn) this.fx.mute(false);
+      this.spokeUntil = Date.now();
+      if (!this.opts.bargeIn) setTimeout(() => this.fx.mute(false), ECHO_TAIL_MS); // let the room go quiet first
     }
     const b = this.bargeText;
     this.bargeText = undefined;
@@ -126,42 +129,35 @@ export class Conversation {
     if (on) {
       clearTimeout(this.listenTimer);
       clearTimeout(this.settleTimer);
-      if (this.speaking && this.opts.bargeIn && !this.bargePending) {
-        // You might be interrupting: pause the voice right away, decide once we know what you said.
-        this.bargePending = true;
-        this.fx.tts('pause');
-        this.fx.status('listening');
-        clearTimeout(this.bargeTimer);
-        this.bargeTimer = setTimeout(() => this.resumeAfterFalseBarge(), 8000);
-      }
+      // Speakers feed the assistant's voice back into the mic. Anything that starts while it
+      // talks (or right after) is checked against what it said before being trusted.
+      this.suspectEcho = this.speaking || Date.now() - this.spokeUntil < ECHO_TAIL_MS;
     } else if (this.mode === 'listening' && !this.buffer) {
       this.armListenTimer();
     }
   }
 
-  private resumeAfterFalseBarge() {
-    if (!this.bargePending) return;
-    this.bargePending = false;
-    clearTimeout(this.bargeTimer);
-    this.fx.tts('resume');
-    this.fx.status(this.lastStatus.s, this.lastStatus.d);
-  }
-
   /** A finished utterance from Whisper ('' if it was only noise). */
   onText(text: string) {
-    if (this.bargePending) {
+    if (this.suspectEcho) {
+      this.suspectEcho = false;
       if (!text || isEcho(text, this.spokenText)) {
-        this.fx.log('ignored own voice:', text);
-        return this.resumeAfterFalseBarge();
+        this.fx.log('ignored own voice:', text || '(noise)');
+        if (this.mode === 'listening' && !this.buffer) this.armListenTimer();
+        return;
       }
-      this.fx.log('interrupted by user:', text);
-      this.bargePending = false;
-      clearTimeout(this.bargeTimer);
-      this.bargeText = text;
-      this.fx.tts('cancel'); // say() resolves and its caller handles bargeText
-      return;
+      if (this.speaking) {
+        // Real interruption? Needs a stop word or a few words that aren't its own.
+        if (!isStop(text) && words(text) < 3) {
+          this.fx.log('too short to be an interruption, ignoring:', text);
+          return;
+        }
+        this.fx.log('interrupted by user:', text);
+        this.bargeText = text;
+        this.fx.tts('cancel'); // say() resolves and its caller handles bargeText
+        return;
+      }
     }
-    if (this.speaking && this.opts.bargeIn && text && isEcho(text, this.spokenText)) return; // echo tail
     if (!text) {
       if (this.mode === 'listening' && !this.buffer) this.armListenTimer();
       return;
