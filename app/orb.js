@@ -69,23 +69,52 @@ function scheduleHide(ms) {
   }, ms);
 }
 
-function setText(el, text, fresh = true) {
-  el.textContent = text || '';
-  if (fresh && text) { el.classList.remove('fresh'); void el.offsetWidth; el.classList.add('fresh'); }
+// ---------- chat: your messages and Nova's, in full, scrollable ----------
+const chat = $('chat');
+const MAX_MESSAGES = 40;
+let liveYou = null; // your bubble while you're still talking
+let typeTimer;
+
+/** Keep the newest message in view, unless you've scrolled up to read something. */
+let stick = true;
+chat.addEventListener('scroll', () => { stick = chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 12; });
+function scrollDown() { if (stick) chat.scrollTop = chat.scrollHeight; }
+
+function addMessage(who, text) {
+  const m = document.createElement('div');
+  m.className = 'msg ' + who;
+  m.textContent = text || '';
+  chat.appendChild(m);
+  while (chat.children.length > MAX_MESSAGES) chat.firstElementChild.remove();
+  stick = true;
+  scrollDown();
+  showCard();
+  return m;
 }
 
-// Reveal replies word by word, roughly in step with the voice.
-let typeTimer;
+/** Your words: updated live while you speak, then finalised when the command runs. */
+function showYou(text, final) {
+  if (!text) return;
+  if (!liveYou) liveYou = addMessage('you', text);
+  else { liveYou.textContent = text; scrollDown(); }
+  if (final) liveYou = null;
+}
+
+// Nova's reply appears word by word, roughly in step with her voice.
+let typing = null; // { el, text } of the reply still being revealed
 function typeReply(text) {
   clearInterval(typeTimer);
+  if (typing) typing.el.textContent = typing.text; // finish the previous reply instantly
+  liveYou = null;
+  const m = addMessage('nova', '');
+  typing = { el: m, text: text || '' };
   const words = (text || '').split(/(\s+)/);
   let i = 0;
-  $('reply').textContent = '';
-  $('reply').classList.remove('fresh');
   typeTimer = setInterval(() => {
-    $('reply').textContent += words.slice(i, i + 2).join('');
+    m.textContent += words.slice(i, i + 2).join('');
     i += 2;
-    if (i >= words.length) clearInterval(typeTimer);
+    scrollDown();
+    if (i >= words.length) { clearInterval(typeTimer); typing = null; }
   }, 70);
 }
 
@@ -97,10 +126,10 @@ bridge.on('status', ({ status, detail, conversation }) => {
   card.classList.toggle('convo', !!conversation && status !== 'idle' && status !== 'paused');
   render();
 });
-bridge.on('transcript', (t) => { setText($('you'), t); setText($('reply'), ''); showCard(); });
-bridge.on('heard', (t) => { if (mainStatus === 'confirming') setText($('you'), t); });
+bridge.on('transcript', (t) => showYou(t, true));
+bridge.on('heard', (t) => { if (mainStatus === 'confirming') showYou(t, true); });
 // Your words appear as you speak (one phrase at a time), before the command runs.
-bridge.on('transcript-live', (t) => { $('you').textContent = t; $('reply').textContent = ''; clearInterval(typeTimer); showCard(); });
+bridge.on('transcript-live', (t) => showYou(t, false));
 bridge.on('queued', (t) => { $('detail').textContent = `Next: ${t}`; });
 bridge.on('tts', (cmd) => {
   if (cmd === 'pause') { speechSynthesis.pause(); playCtx?.suspend(); }

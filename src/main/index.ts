@@ -145,7 +145,7 @@ function startAudio() {
 function createOrb() {
   const { workArea } = screen.getPrimaryDisplay();
   // A slim vertical dock in the middle of the right screen edge.
-  const w = 240, h = 500;
+  const w = 240, h = 580;
   orb = new BrowserWindow({
     width: w, height: h,
     x: workArea.x + workArea.width - w - 2, y: workArea.y + Math.round((workArea.height - h) / 2),
