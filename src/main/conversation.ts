@@ -1,5 +1,5 @@
 import type { AgentStatus, Host } from '../brain/host.js';
-import { isGoodbye, isStop, matchWake, parseYesNo, stripEcho } from '../audio/wake.js';
+import { findWake, isGoodbye, isStop, lastSentence, matchWake, parseYesNo, stripEcho } from '../audio/wake.js';
 import { greetingFor, isGreeting } from '../brain/greeting.js';
 
 /** How long after the assistant stops talking its voice may still reach the mic. */
@@ -218,20 +218,28 @@ export class Conversation {
         return this.listen(text);
       case 'idle': {
         if (this.paused || !this.opts.wakeWordEnabled) return;
-        const w = matchWake(text, this.opts.wakeWord);
+        // The wake phrase may be anywhere: with a video playing, your words get glued to its speech.
+        const w = findWake(text, this.opts.wakeWord);
+        const tail = lastSentence(text); // where your words usually land in a mixed clip
         if (!w.woke) {
-          // A short greeting on its own ("Hello.", "Hi there", "Good morning") also wakes it and
-          // gets the introduction. Longer sentences without the wake word (TV, videos, other people) don't.
-          if (this.opts.greetToWake !== false && isGreeting(text) && words(text) <= 4) {
+          // A short greeting ("Hello.", "Hi there", "Good morning") also wakes it and gets the
+          // introduction: on its own, or as the last sentence of a clip. Other speech doesn't.
+          if (this.opts.greetToWake === false) return;
+          const greeting = isGreeting(text) && words(text) <= 4 ? text : tail && isGreeting(tail) && words(tail) <= 3 ? tail : '';
+          if (greeting) {
+            this.fx.log('woken by greeting:', greeting);
             this.wake(false);
-            void this.run(text);
+            void this.run(greeting);
           }
           return;
         }
         this.wake(false);
         if (w.rest) this.listen(w.rest);
-        // "Hello computer" → introduce yourself. The bare wake phrase ("hey computer") just wakes it.
-        else if (isGreeting(text) && simple(text) !== simple(this.opts.wakeWord)) void this.run(text);
+        else {
+          // "Hello computer" → introduce yourself. The bare wake phrase ("hey computer") just wakes it.
+          const said = tail || text;
+          if (isGreeting(said) && simple(said) !== simple(this.opts.wakeWord)) void this.run(said);
+        }
       }
     }
   }

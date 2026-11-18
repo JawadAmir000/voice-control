@@ -317,3 +317,30 @@ describe('greeting wakes it', () => {
     expect(w.c.mode).toBe('idle');
   });
 });
+
+describe('waking while a video plays', () => {
+  beforeEach(() => vi.useFakeTimers());
+  const video = 'I have to try my certain things. I have to try my certain things. We have to be fine, fine and fine.';
+  it('finds "Hey computer" after video speech and runs the command', async () => {
+    const w = setup();
+    w.talk(`${video} Hey computer, open Notepad.`);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(w.sent).toEqual(['open Notepad.']);
+  });
+  it('a "Hello" at the end of a video clip wakes it and greets', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.talk(`${video} Hello.`);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(w.spoken[0]).toMatch(/Jawad! I'm your personal AI assistant/);
+  });
+  it('video speech alone, or "computer" mid-sentence, does not wake it', async () => {
+    const w = setup({ userName: 'Jawad' });
+    w.talk(video);
+    w.talk('My computer is slow. I bought a new computer yesterday and it is great.');
+    w.talk('Hello everyone and welcome back to the channel. Today we will talk about AI.');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(w.spoken).toEqual([]);
+    expect(w.sent).toEqual([]);
+    expect(w.c.mode).toBe('idle');
+  });
+});

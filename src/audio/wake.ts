@@ -39,6 +39,35 @@ export function matchWake(transcript: string, wakePhrase: string): { woke: boole
   return { woke: false, rest: '' };
 }
 
+/**
+ * Finds the wake phrase anywhere in a clip, for when background audio (a video) is glued to
+ * what you said: "...the position. Hey computer, open Notepad" → { woke, rest: "open Notepad" }.
+ * Mid-sentence it needs the full phrase (greeting + name), so a stray "computer" doesn't count.
+ */
+export function findWake(transcript: string, wakePhrase: string): { woke: boolean; rest: string } {
+  const start = matchWake(transcript, wakePhrase);
+  if (start.woke) return start;
+  const tokens = transcript.trim().split(/\s+/);
+  const w = tokens.map((t) => norm(t));
+  const wake = norm(wakePhrase).split(' ').filter(Boolean);
+  const name = wake[wake.length - 1];
+  const lead = wake.slice(0, -1);
+  for (let i = 1; i < w.length; i++) {
+    if (!close(w[i], name)) continue;
+    const prev = w[i - 1];
+    if (!(GREETINGS.has(prev) || lead.some((l) => close(prev, l)))) continue;
+    const rest = tokens.slice(i + 1).join(' ').replace(/^[,.!?;:\s]+/, '').trim();
+    return { woke: true, rest };
+  }
+  return { woke: false, rest: '' };
+}
+
+/** The last sentence of a clip ("…video talk. Hello."), where your own words usually land. */
+export function lastSentence(transcript: string): string {
+  const parts = transcript.trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : '';
+}
+
 export function parseYesNo(text: string): 'yes' | 'no' | 'unknown' {
   const t = norm(text);
   if (!t) return 'unknown';
