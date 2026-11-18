@@ -46,13 +46,20 @@ async function pump() {
   while (jobs.length) {
     const { id, text } = jobs.shift()!;
     const parts = sentences(text);
+    try {
     for (let i = 0; i < parts.length; i++) {
       if (cancelled >= id) break;
       const t = Date.now();
-      const audio = tts.generate({ text: parts[i], sid: 0, speed });
+      // Electron forbids "external" buffers, so ask for a normal copy of the samples.
+      const audio = tts.generate({ text: parts[i], sid: 0, speed, enableExternalBuffer: false });
       if (cancelled >= id) break;
       send({ type: 'chunk', id, samples: audio.samples, sampleRate: audio.sampleRate, last: i === parts.length - 1, ms: Date.now() - t });
       await new Promise((r) => setImmediate(r)); // let cancel messages in between sentences
+    }
+    } catch (e) {
+      // Never leave the assistant silent: tell main, which speaks this reply with Windows speech.
+      send({ type: 'failed', id, message: (e as Error).message });
+      continue;
     }
     if (parts.length === 0) send({ type: 'chunk', id, samples: new Float32Array(0), sampleRate: 22050, last: true, ms: 0 });
   }

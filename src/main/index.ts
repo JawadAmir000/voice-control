@@ -56,6 +56,9 @@ function startVoice() {
     else if (m.type === 'chunk') {
       if (m.id !== speakId) return; // cancelled
       ui('tts-chunk', { id: m.id, samples: m.samples, sampleRate: m.sampleRate, last: m.last });
+    } else if (m.type === 'failed') {
+      log('voice failed, using Windows speech for this reply:', m.message);
+      if (m.id === speakId) ui('speak', { text: speakText, voice: cfg.voice });
     } else if (m.type === 'error') { log('voice error, using Windows speech:', m.message); voiceReady = false; }
   });
   voiceProc.on('exit', (code) => { voiceReady = false; log('voice process exited', code); if (!quitting && code !== 0) setTimeout(startVoice, 2000); });
