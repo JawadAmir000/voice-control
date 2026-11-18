@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classify } from '../src/brain/permissions.js';
+import { classify, describe as describeAction } from '../src/brain/permissions.js';
 import { isStop, matchWake, parseYesNo } from '../src/audio/wake.js';
 import { parseChord, rankApps, scoreApp } from '../src/win/desktop.js';
 
@@ -103,5 +103,28 @@ describe('whisper repetition loops', () => {
     expect(isRepetitive('If you spend 15 minutes a day doing something for you doing something for you doing something for you doing something for you doing something for you doing something')).toBe(true);
     expect(isRepetitive('So I want to learn about yourself, who are you and how are you doing this stuff like what is the brain behind you which kind of model you are using.')).toBe(false);
     expect(isRepetitive('open notepad')).toBe(false);
+  });
+});
+
+describe('connected accounts (Gmail etc.)', () => {
+  it('reading, searching and drafting run; sending or deleting needs a yes', () => {
+    expect(classify('mcp__claude_ai_Gmail__search_threads', { query: 'Himadri' }).kind).toBe('allow');
+    expect(classify('mcp__claude_ai_Gmail__get_thread', { id: '1' }).kind).toBe('allow');
+    expect(classify('mcp__claude_ai_Gmail__create_draft', { to: 'a@b.c' }).kind).toBe('allow');
+    expect(classify('mcp__claude_ai_Gmail__send_message', { to: 'a@b.c' }).kind).toBe('confirm');
+    expect(classify('mcp__claude_ai_Gmail__reply', {}).kind).toBe('confirm');
+    expect(classify('mcp__claude_ai_Gmail__trash_thread', {}).kind).toBe('confirm');
+  });
+  it('asks in plain words, naming the recipient', () => {
+    const v = classify('mcp__claude_ai_Gmail__send_message', { to: 'xylon@example.com' });
+    expect(v.kind === 'confirm' && describeAction('mcp__claude_ai_Gmail__send_message', { to: 'xylon@example.com' }, v.reason))
+      .toBe("I'm about to send message in Gmail to xylon@example.com. Should I go ahead?");
+  });
+  it('never speaks technical refusals; plain ones only', () => {
+    const v = classify('Bash', { command: 'ls' });
+    expect(v.kind === 'deny' && v.spoken).toBeFalsy();
+    const card = classify('mcp__pc__type_text', { text: '4111 1111 1111 1111' });
+    expect(card.kind === 'deny' && card.spoken).toMatch(/card number/);
+    expect(JSON.stringify(card)).not.toMatch(/mcp__/);
   });
 });

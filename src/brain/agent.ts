@@ -54,7 +54,7 @@ export class Brain {
       this.log('tool', toolName, JSON.stringify(input).slice(0, 200), '→', v.kind);
       if (v.kind === 'allow') return { behavior: 'allow', updatedInput: input };
       if (v.kind === 'deny') {
-        this.host.say(v.reason);
+        if (v.spoken) this.host.say(v.spoken); // technical refusals stay silent
         return { behavior: 'deny', message: v.reason };
       }
       this.host.status('confirming', v.reason);

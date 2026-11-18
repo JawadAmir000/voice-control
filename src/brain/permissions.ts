@@ -4,7 +4,19 @@
  *   confirm – the user must say "yes" first
  *   deny    – never runs
  */
-export type Verdict = { kind: 'allow' } | { kind: 'confirm'; reason: string } | { kind: 'deny'; reason: string };
+/** `spoken` on a deny is a plain-words message for the user; without it the refusal is silent (only Claude is told). */
+export type Verdict = { kind: 'allow' } | { kind: 'confirm'; reason: string } | { kind: 'deny'; reason: string; spoken?: string };
+
+/** Connector actions that change or send something on your behalf: these need a spoken "yes". */
+const RISKY_CONNECTOR_ACTION = /(^|_)(send|forward|reply|delete|trash|remove|spam|share|invite|publish|post|purchase|buy|pay|transfer|upload|apply|submit|cancel|unsubscribe)(_|$)/i;
+
+/** "mcp__claude_ai_Gmail__send_message" → { service: "Gmail", action: "send message" } */
+export function describeConnectorTool(toolName: string): { service: string; action: string } {
+  const parts = toolName.split('__');
+  const service = (parts[1] ?? '').replace(/^claude_ai_/i, '').replace(/[_-]+/g, ' ').trim() || 'that app';
+  const action = (parts.slice(2).join(' ') || 'do that').replace(/[_-]+/g, ' ').trim();
+  return { service, action };
+}
 
 const DENY_SHELL: [RegExp, string][] = [
   [/Set-MpPreference|Add-MpPreference.*Exclusion|DisableRealtimeMonitoring/i, 'changing Windows Defender'],
@@ -51,13 +63,13 @@ export function classify(toolName: string, input: Record<string, unknown>): Verd
   switch (name) {
     case 'run_powershell': {
       const script = String(input.script ?? '');
-      for (const [re, why] of DENY_SHELL) if (re.test(script)) return { kind: 'deny', reason: `Not allowed: ${why}.` };
+      for (const [re, why] of DENY_SHELL) if (re.test(script)) return { kind: 'deny', reason: `Not allowed: ${why}.`, spoken: `Sorry, I'm not allowed to do that: ${why}.` };
       for (const [re, why] of CONFIRM_SHELL) if (re.test(script)) return { kind: 'confirm', reason: why };
       return { kind: 'allow' };
     }
     case 'type_text': {
       const text = String(input.text ?? '');
-      if (looksLikeCard(text)) return { kind: 'deny', reason: 'That looks like a card number. Please type payment details yourself.' };
+      if (looksLikeCard(text)) return { kind: 'deny', reason: 'That looks like a card number. Ask the user to type payment details themselves.', spoken: 'That looks like a card number, so please type payment details yourself.' };
       return { kind: 'allow' };
     }
     case 'click_element': {
@@ -73,15 +85,26 @@ export function classify(toolName: string, input: Record<string, unknown>): Verd
       if (/\.(exe|msi|bat|cmd|ps1|vbs|js|scr)$/i.test(t) && !/^https?:/i.test(t)) return { kind: 'confirm', reason: `run the program ${t}` };
       return { kind: 'allow' };
     }
-    default:
+    default: {
       if (toolName.startsWith('mcp__pc__')) return { kind: 'allow' };
-      // Claude Code's own built-in tools (Bash, Write, ...) are switched off; refuse anything that slips through.
-      return { kind: 'deny', reason: `Tool ${toolName} is not available in voice mode.` };
+      if (toolName.startsWith('mcp__')) {
+        // Your connected accounts (Gmail, etc.): reading, searching and drafting are fine;
+        // anything that sends, deletes or acts on your behalf needs a yes.
+        const { service, action } = describeConnectorTool(toolName);
+        if (RISKY_CONNECTOR_ACTION.test(toolName.split('__').slice(2).join('_'))) return { kind: 'confirm', reason: `${action} in ${service}` };
+        return { kind: 'allow' };
+      }
+      // Claude Code's own built-in tools (Bash, Write, ...) are switched off; refuse quietly if one slips through.
+      return { kind: 'deny', reason: `Tool ${toolName} is not available here; use the pc tools instead.` };
+    }
   }
 }
 
 /** Turns a tool call into a short sentence for the confirmation prompt. */
 export function describe(toolName: string, input: Record<string, unknown>, reason: string): string {
   const why = typeof input.reason === 'string' && input.reason ? ` (${input.reason})` : '';
-  return `I'm about to ${reason}${why}. Should I go ahead?`;
+  // For emails and messages, say who it goes to ("send message in Gmail to xylon@…").
+  const toRaw = input.to ?? input.recipient ?? input.recipients;
+  const to = Array.isArray(toRaw) ? toRaw.join(', ') : typeof toRaw === 'string' ? toRaw : '';
+  return `I'm about to ${reason}${to ? ` to ${to}` : ''}${why}. Should I go ahead?`;
 }
