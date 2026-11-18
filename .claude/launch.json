@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "orb-ui", "runtimeExecutable": "node", "runtimeArgs": ["scripts/ui-preview.mjs"], "port": 5178 }
+  ]
+}
