@@ -1,10 +1,27 @@
+<p align="center">
+  <img src="docs/images/banner.png" alt="Nova: a voice assistant for Windows" width="100%">
+</p>
+
+<p align="center">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white">
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white">
+  <img alt="Claude Agent SDK" src="https://img.shields.io/badge/brain-Claude%20Agent%20SDK-D97757">
+  <img alt="Speech" src="https://img.shields.io/badge/speech-100%25%20local-34D399">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-vitest-6E9F18?logo=vitest&logoColor=white">
+</p>
+
 # Nova: your voice assistant for Windows
 
 Control your Windows PC by talking to it. Say **"Hey Computer, open Visual Studio Code"**, or press **Ctrl+Alt+V** and say what you want. Claude (on your own subscription) works out the steps and does them with the keyboard, mouse and apps.
 
-- **Speech recognition is local and free.** It uses Silero VAD + Whisper through sherpa-onnx, so your audio never leaves the PC.
+- **Speech recognition is local and free.** It uses Silero VAD + NVIDIA Parakeet TDT 0.6B through sherpa-onnx, so your audio never leaves the PC.
 - **The brain is Claude.** It uses the Claude Agent SDK, signed in with your Claude subscription (no API key). Every command counts toward your subscription's usage limits.
 - **Replies are spoken** by a natural local voice (Piper "lessac", free and offline). It plays inside the app, so the microphone's echo cancellation removes it: the assistant doesn't hear itself on laptop speakers, and you can talk over it.
+
+<p align="center">
+  <img src="docs/images/states.png" alt="Nova orb in its six states: idle, listening, thinking, working, asking for confirmation and speaking" width="100%">
+</p>
 
 ## Setup (once)
 
@@ -22,7 +39,7 @@ npm.cmd run models
 npm.cmd run login
 ```
 
-`models` downloads about 270 MB of speech models into `models/`: voice detection, Whisper speech recognition and the Piper voice. `login` opens a browser to sign in with your Claude account. Check it with `npm.cmd run login-status`.
+`models` downloads about 550 MB of speech models into `models/`: voice detection, a small wake-word listener for "Hey Nova", Parakeet speech recognition and the Piper voice. `login` opens a browser to sign in with your Claude account. Check it with `npm.cmd run login-status`.
 
 ## Run
 
@@ -79,6 +96,7 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
   "wakeWord": "hey nova, hey computer",
   "hotkey": "Control+Alt+V",
   "model": "sonnet",
+  "sttModel": "parakeet",
   "whisper": "base.en",
   "wakeWordEnabled": true,
   "conversation": true,
@@ -94,15 +112,19 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
 
 - `followUpSeconds`: how long it keeps listening after you go quiet. `endOfSpeechMs`: raise it (for example to 1200) if it still acts before you finish a sentence.
 - `model`: `sonnet` is fast. `opus` is smarter but slower and uses more of your limits.
-- `whisper`: for better accuracy run `npm.cmd run models -- small.en`, then set `"small.en"`.
+- `sttModel`: `"parakeet"` (default, most accurate) or `"whisper"`. For Whisper, run `npm.cmd run models -- base.en` (or `small.en`) and set `whisper` to that name. If Parakeet isn't downloaded, Whisper is used.
 - `ttsVoice`: the Piper voice (`"en_US-lessac-medium"`). Set it to `""` to use Windows speech instead. `ttsSpeed`: 1.1 speaks a bit faster.
 - `voice`: part of a Windows voice name, for the Windows-speech fallback.
 - Restart the app after editing.
 
 ## How it works
 
+<p align="center">
+  <img src="docs/images/architecture.png" alt="Pipeline: microphone, Silero VAD, wake word, Parakeet speech-to-text and Piper voice run locally; Claude Agent SDK, permission gate, PC tools and the PowerShell helper control Windows" width="100%">
+</p>
+
 ```
-mic → orb window (AudioWorklet, 16 kHz) → speech worker (VAD → Whisper) → text
+mic → orb window (AudioWorklet, 16 kHz) → speech worker (VAD → Parakeet) → text
 text → wake-word check → Claude Agent SDK session → pc tools → PowerShell helper (Win32 / UI Automation)
 ```
 
