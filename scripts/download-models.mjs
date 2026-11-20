@@ -7,7 +7,8 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 
-const root = path.resolve(import.meta.dirname, '..', 'models');
+// VC_MODELS_DIR: where the installed app keeps them (%APPDATA%oice-controlmodels).
+const root = process.env.VC_MODELS_DIR || path.resolve(import.meta.dirname, '..', 'models');
 const whisper = process.argv[2]; // optional Whisper model name
 const base = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models';
 mkdirSync(root, { recursive: true });
@@ -19,7 +20,17 @@ async function download(url, dest) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   const tmp = dest + '.part';
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(tmp));
+  // "progress <name> <percent>" lines let the app show how far along it is.
+  const total = Number(res.headers.get('content-length')) || 0;
+  let got = 0, shown = -1;
+  const name = path.basename(dest);
+  const body = Readable.fromWeb(res.body);
+  body.on('data', (c) => {
+    got += c.length;
+    const pct = total ? Math.floor((got / total) * 100) : 0;
+    if (total && pct >= shown + 5) { shown = pct; console.log(`progress ${name} ${pct}`); }
+  });
+  await pipeline(body, createWriteStream(tmp));
   renameSync(tmp, dest);
 }
 

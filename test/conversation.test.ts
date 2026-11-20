@@ -9,6 +9,7 @@ function setup(overrides: Partial<ConstructorParameters<typeof Conversation>[1]>
   const ttsCmds: string[] = [];
   let finishSpeech: (() => void) | undefined;
   let reply = (t: string) => `Done: ${t}`;
+  let fast: (t: string) => string | undefined = () => undefined;
   const fx: Effects = {
     status: () => {},
     ui: () => {},
@@ -16,6 +17,7 @@ function setup(overrides: Partial<ConstructorParameters<typeof Conversation>[1]>
     tts: (c) => { ttsCmds.push(c); if (c === 'cancel') finishSpeech?.(); },
     mute: () => {},
     send: async (t) => { sent.push(t); return reply(t); },
+    fast: async (t) => fast(t),
     interrupt: async () => {},
     escapeKey: () => {},
     log: () => {},
@@ -27,7 +29,7 @@ function setup(overrides: Partial<ConstructorParameters<typeof Conversation>[1]>
   /** You say something: VAD on, VAD off, then Whisper's transcript. */
   const talk = (text: string) => { c.onSpeech(true); c.onSpeech(false); c.onText(text); };
   const endSpeech = async () => { finishSpeech?.(); finishSpeech = undefined; await vi.advanceTimersByTimeAsync(0); };
-  return { c, sent, spoken, ttsCmds, talk, endSpeech, setReply: (f: typeof reply) => (reply = f) };
+  return { c, sent, spoken, ttsCmds, talk, endSpeech, setReply: (f: typeof reply) => (reply = f), setFast: (f: typeof fast) => (fast = f) };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -502,5 +504,124 @@ describe('wake-word listener', () => {
     expect(tokenize('Nova', vocab)).toEqual(['▁NO', 'V', 'A']);
     expect(wakeKeywords('Nova', vocab)).toEqual(['▁HE Y ▁NO V A @hey_nova', '▁HI ▁NO V A @hi_nova', '▁HE LL O ▁NO V A @hello_nova', '▁OKAY ▁NO V A @okay_nova']);
     expect(tokenize('Zed', vocab)).toBeUndefined();
+  });
+});
+
+describe('instant commands', () => {
+  it('does simple commands without Claude, then tells Claude about them', async () => {
+    const w = setup();
+    w.setFast((t) => (t === 'open Notepad' ? "Notepad's open." : t === 'pause the music' ? '' : undefined));
+    w.c.typed('open Notepad');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.sent).toEqual([]);
+    expect(w.spoken).toEqual(["Notepad's open."]);
+    await w.endSpeech();
+
+    w.c.typed('pause the music'); // done silently
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.spoken).toHaveLength(1);
+
+    w.c.typed('now type hello');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.sent).toHaveLength(1);
+    expect(w.sent[0]).toContain('"open Notepad"');
+    expect(w.sent[0]).toContain('"pause the music"');
+    expect(w.sent[0].endsWith('\nnow type hello')).toBe(true);
+  });
+});
+
+describe('reminders going off', () => {
+  it('waits until the current task is done, then says it', async () => {
+    const w = setup();
+    let finishTask!: (r: string) => void;
+    w.setReply(() => 'unused');
+    const c = w.c as unknown as { fx: { send: (t: string) => Promise<string> } };
+    c.fx.send = () => new Promise((r) => (finishTask = r));
+    w.c.typed('write my report');
+    await vi.advanceTimersByTimeAsync(0);
+    w.c.announce('Reminder: call your mom.');
+    expect(w.spoken).toEqual([]);
+    finishTask('Report written.');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.spoken).toEqual(['Report written.']);
+    await w.endSpeech();
+    expect(w.spoken).toEqual(['Report written.', 'Reminder: call your mom.']);
+  });
+
+  it('is said right away when Nova is free', () => {
+    const w = setup();
+    w.c.announce('Your 5 minute timer is done.');
+    expect(w.spoken).toEqual(['Your 5 minute timer is done.']);
+  });
+});
+
+describe('routines', () => {
+  it('runs instant steps locally and groups the rest for Claude, in order', async () => {
+    const w = setup();
+    const done: string[] = [];
+    const fx = (w.c as unknown as { fx: Record<string, unknown> }).fx;
+    const isFast = (t: string) => t.startsWith('open ') || t === 'mute';
+    fx.routine = (t: string) => (t === 'start work mode' ? { name: 'work mode', steps: ['open Slack', 'check my email', 'summarise it', 'wait 2 seconds', 'mute'] } : undefined);
+    fx.canFast = isFast;
+    w.setFast((t) => { if (!isFast(t)) return undefined; done.push(t); return ''; });
+    w.setReply(() => 'You have 3 new emails.');
+    w.c.typed('start work mode');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toEqual(['open Slack']);
+    expect(w.sent).toHaveLength(1);
+    expect(w.sent[0]).toContain('Do these in order:\n1. check my email\n2. summarise it');
+    expect(w.sent[0]).toContain('"open Slack"'); // Claude is told what already happened
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(done).toEqual(['open Slack', 'mute']);
+    expect(w.spoken).toEqual(['You have 3 new emails.']);
+  });
+
+  it('says it is ready when every step was instant', async () => {
+    const w = setup();
+    const fx = (w.c as unknown as { fx: Record<string, unknown> }).fx;
+    fx.routine = () => ({ name: 'focus mode', steps: ['mute', 'minimize everything'] });
+    w.setFast(() => '');
+    w.c.typed('focus mode');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.sent).toEqual([]);
+    expect(w.spoken).toEqual(['Focus mode is ready.']);
+  });
+});
+
+describe('review fixes: conversation', () => {
+  it('what you say over a reminder becomes your next request', async () => {
+    const w = setup();
+    w.c.toggle(); // awake and listening
+    w.c.announce('Reminder: call your mom.');
+    expect(w.spoken).toEqual(['Reminder: call your mom.']);
+    // You talk over it
+    w.c.onSpeech(true); w.c.onSpeech(false); w.c.onText('ok now open Spotify please');
+    await vi.advanceTimersByTimeAsync(800);
+    expect(w.sent).toEqual(['ok now open Spotify please']);
+  });
+
+  it('waits until you have finished talking before announcing', async () => {
+    const w = setup();
+    w.c.toggle();
+    w.c.onSpeech(true); // you're mid-sentence
+    w.c.announce('Your 5 minute timer is done.');
+    expect(w.spoken).toEqual([]);
+    w.c.onSpeech(false);
+    w.c.onText('open notepad');
+    await vi.advanceTimersByTimeAsync(800); // your command runs first
+    expect(w.sent).toEqual(['open notepad']);
+    await w.endSpeech();
+    expect(w.spoken).toEqual(['Done: open notepad', 'Your 5 minute timer is done.']);
+  });
+
+  it('a routine speaks every answer Claude gave, not just the last', async () => {
+    const w = setup();
+    const fx = (w.c as unknown as { fx: Record<string, unknown> }).fx;
+    fx.routine = () => ({ name: 'morning', steps: ["what's on my calendar", 'wait 1 second', 'check my email'] });
+    w.setFast(() => undefined);
+    w.setReply((t) => (t.includes('calendar') ? 'Two meetings today.' : 'Three new emails.'));
+    w.c.typed('start morning');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(w.spoken).toEqual(['Two meetings today. Three new emails.']);
   });
 });

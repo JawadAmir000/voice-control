@@ -136,6 +136,12 @@ export function rankApps(apps: StartApp[], query: string): StartApp[] {
     .map((x) => x.a);
 }
 
+/** The installed app that best matches what the user said, with how sure we are (0–100). */
+export async function bestApp(query: string): Promise<{ name: string; score: number } | undefined> {
+  const best = rankApps(await listApps(), query)[0];
+  return best && { name: best.Name, score: scoreApp(best.Name, query) };
+}
+
 export async function openApp(query: string): Promise<string> {
   // Already open? Just bring it to the front.
   const existing = await findWindow(query);

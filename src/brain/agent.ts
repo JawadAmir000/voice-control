@@ -1,11 +1,11 @@
 import { query, type Query, type SDKUserMessage, type CanUseTool } from '@anthropic-ai/claude-agent-sdk';
 import os from 'node:os';
-import { pcServer } from '../tools/pc.js';
+import { pcServer, type Services } from '../tools/pc.js';
 import { classify, describe } from './permissions.js';
 import { systemPrompt } from './prompt.js';
 import type { Host } from './host.js';
 
-export type BrainOptions = { model?: string; userName?: string; assistantName?: string; log?: (...a: unknown[]) => void };
+export type BrainOptions = { model?: string; userName?: string; assistantName?: string; services?: Services; log?: (...a: unknown[]) => void };
 
 /** A simple async queue that feeds user messages into one long-lived Claude session. */
 class Inbox implements AsyncIterable<SDKUserMessage> {
@@ -77,9 +77,9 @@ export class Brain {
       prompt: this.inbox,
       options: {
         model: this.opts.model ?? 'sonnet',
-        systemPrompt: systemPrompt(this.opts.userName, this.opts.assistantName),
+        systemPrompt: systemPrompt(this.opts.userName, this.opts.assistantName, this.opts.services?.memory?.promptSection()),
         tools: [], // no built-in Claude Code tools; only our pc tools
-        mcpServers: { pc: pcServer(this.host) },
+        mcpServers: { pc: pcServer(this.host, this.opts.services) },
         allowedTools: [],
         canUseTool,
         permissionMode: 'default',

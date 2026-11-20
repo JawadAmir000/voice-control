@@ -1,6 +1,7 @@
 import type { AgentStatus, Host } from '../brain/host.js';
 import { findWake, isGoodbye, isStop, lastSentence, matchWake, nameVariants, parseYesNo, stripEcho, wakePhrases } from '../audio/wake.js';
 import { greetingFor, isGreeting } from '../brain/greeting.js';
+import { waitStep } from '../brain/routines.js';
 
 /** How long after the assistant stops talking its voice may still reach the mic. */
 const ECHO_TAIL_MS = 1500;
@@ -16,6 +17,12 @@ export interface Effects {
   tts(cmd: 'pause' | 'resume' | 'cancel'): void;
   mute(on: boolean): void;
   send(text: string): Promise<string>;
+  /** Instant local commands: resolves with the reply, or undefined to hand the request to Claude. */
+  fast?(text: string): Promise<string | undefined>;
+  /** Would fast() probably handle this? (Without doing it.) */
+  canFast?(text: string): boolean;
+  /** A saved routine this phrase starts ("start work mode"), if any. */
+  routine?(text: string): { name: string; steps: string[] } | undefined;
   interrupt(): Promise<void>;
   escapeKey(on: boolean): void;
   log(...a: unknown[]): void;
@@ -78,6 +85,10 @@ export class Conversation {
   private stopped = false;
   /** Wake phrase the listener just heard ("hello nova"), until its clip's transcript arrives. */
   private keyword?: string;
+  /** Instant commands done since Claude last heard from us, so it knows ("open Notepad" → "now type hello"). */
+  private doneLocally: string[] = [];
+  /** Reminders that went off while Nova was busy; said once the task is done. */
+  private announcements: string[] = [];
 
   constructor(private fx: Effects, public opts: ConversationOptions) {}
 
@@ -133,6 +144,8 @@ export class Conversation {
     }
     const b = this.bargeText;
     this.bargeText = undefined;
+    // A reminder came in while it was talking outside a task: say it now.
+    if (!b && this.announcements.length) this.tryAnnounce();
     return b;
   }
 
@@ -352,10 +365,27 @@ export class Conversation {
     this.setMode('busy');
     this.status('thinking', text);
     const t = Date.now();
-    // Greetings get an instant personal introduction; everything else goes to Claude.
-    const reply = this.greets(text) ? greetingFor(this.opts.userName ?? '', new Date(), Math.random(), this.opts.assistantName ?? '') : await this.fx.send(text);
-    this.fx.log(`done in ${((Date.now() - t) / 1000).toFixed(1)}s:`, reply);
-    const interrupted = this.stopped ? undefined : await this.say(reply);
+    // Greetings get an instant personal introduction, simple commands are done locally,
+    // everything else goes to Claude.
+    let reply: string;
+    const routine = this.greets(text) ? undefined : this.fx.routine?.(text);
+    if (this.greets(text)) reply = greetingFor(this.opts.userName ?? '', new Date(), Math.random(), this.opts.assistantName ?? '');
+    else if (routine) reply = await this.runRoutine(routine);
+    else {
+      const quick = await this.fx.fast?.(text);
+      if (quick !== undefined) {
+        reply = quick;
+        this.noteLocal(text, quick);
+      } else {
+        reply = await this.fx.send(this.withContext(text));
+      }
+    }
+    this.fx.log(`done in ${((Date.now() - t) / 1000).toFixed(1)}s:`, reply || '(done, nothing to say)');
+    let interrupted: string | undefined;
+    if (this.stopped) interrupted = undefined;
+    else if (reply) interrupted = await this.say(reply);
+    else this.fx.ui('reply', 'Done.'); // "pause the music": just do it, don't talk over it
+    if (!interrupted) interrupted = await this.sayAnnouncements(); // talking over a reminder = your next request
     this.stopped = false;
 
     if (this.queued) {
@@ -372,6 +402,103 @@ export class Conversation {
     }
     if (this.active) this.setMode('listening');
     else this.setMode('idle');
+  }
+
+  /**
+   * Something the user should hear that they didn't ask for just now (a reminder going off).
+   * Said right away when Nova is free; after the current task, or once you've finished talking, otherwise.
+   */
+  announce(text: string) {
+    this.fx.ui('chime');
+    this.announcements.push(text);
+    this.tryAnnounce();
+  }
+
+  private announceTimer?: ReturnType<typeof setTimeout>;
+  private tryAnnounce() {
+    clearTimeout(this.announceTimer);
+    if (!this.announcements.length) return;
+    if (this.mode === 'busy' || this.mode === 'awaiting') return; // run() says them after the task
+    if (this.speaking || this.userTalking || this.buffer || this.draining) {
+      this.announceTimer = setTimeout(() => this.tryAnnounce(), 1000); // don't talk over you
+      return;
+    }
+    void this.sayAnnouncements().then((b) => b && this.heardOver(b));
+  }
+
+  /** You talked over an announcement outside a task: that's your next request. */
+  private heardOver(text: string) {
+    this.active = this.active || this.opts.conversation;
+    this.setMode('listening');
+    this.listen(text);
+  }
+
+  private draining = false;
+  /** Says queued announcements; resolves with what you said if you talked over one. */
+  private async sayAnnouncements(): Promise<string | undefined> {
+    if (this.draining) return undefined;
+    this.draining = true;
+    try {
+      while (this.announcements.length && !this.stopped) {
+        const b = await this.say(this.announcements.shift()!);
+        if (b) return b;
+      }
+      return undefined;
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private noteLocal(text: string, reply: string) {
+    this.doneLocally.push(`"${text}"${reply ? ` (${reply})` : ''}`);
+    if (this.doneLocally.length > 6) this.doneLocally.shift();
+  }
+
+  /**
+   * Runs a routine's steps in order. Instant steps run locally; runs of other steps go to
+   * Claude together in one message. "wait 3 seconds" pauses between steps.
+   */
+  private async runRoutine(r: { name: string; steps: string[] }): Promise<string> {
+    this.fx.log(`routine "${r.name}":`, r.steps.join(' → '));
+    this.status('acting', r.name);
+    const forClaude: string[] = [];
+    const replies: string[] = []; // every batch's answer is kept, not just the last
+    const flush = async () => {
+      if (!forClaude.length || this.stopped) return;
+      const msg = forClaude.length === 1 ? forClaude[0] : `Do these in order:\n${forClaude.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+      forClaude.length = 0;
+      const reply = (await this.fx.send(this.withContext(msg))).trim();
+      if (reply) replies.push(reply);
+    };
+    for (const step of r.steps) {
+      if (this.stopped) break;
+      const wait = waitStep(step);
+      if (wait) {
+        await flush();
+        await new Promise((res) => setTimeout(res, wait));
+        continue;
+      }
+      if (forClaude.length && this.fx.canFast && !this.fx.canFast(step)) {
+        forClaude.push(step); // keep Claude's steps together
+        continue;
+      }
+      await flush();
+      const quick = this.stopped ? undefined : await this.fx.fast?.(step);
+      if (quick !== undefined) this.noteLocal(step, quick);
+      else forClaude.push(step);
+    }
+    await flush();
+    if (this.stopped) return '';
+    const name = r.name.replace(/^./, (c) => c.toUpperCase());
+    return replies.join(' ') || `${name}${/\b(mode|routine)$/i.test(name) ? '' : ' routine'} is ready.`;
+  }
+
+  /** Tells Claude about instant commands it didn't see, so follow-ups make sense. */
+  private withContext(text: string): string {
+    if (!this.doneLocally.length) return text;
+    const note = `(Already done for the user since your last message: ${this.doneLocally.join('; ')}.)`;
+    this.doneLocally = [];
+    return `${note}\n${text}`;
   }
 
   async stop() {

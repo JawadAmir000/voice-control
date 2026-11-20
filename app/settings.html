@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+<title>Settings</title>
+<style>
+  :root {
+    --bg: #0e0f1a; --panel: #161827; --line: rgba(255,255,255,.08); --field: rgba(255,255,255,.05);
+    --text: #f4f4f8; --muted: #9a9cb3; --faint: #6b6d85; --accent: #7c5cff; --danger: #ff7b7b; --ok: #34d399;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f6f6fb; --panel: #ffffff; --line: rgba(20,20,40,.1); --field: rgba(20,20,40,.04); --text: #17182a; --muted: #5d6078; --faint: #8b8da3; --danger: #d33d3d; --ok: #0f9f6e; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13.5px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  body { display: grid; grid-template-columns: 180px 1fr; }
+  nav { border-right: 1px solid var(--line); padding: 18px 10px; display: flex; flex-direction: column; gap: 2px; }
+  nav h1 { font-size: 15px; margin: 0 10px 14px; font-weight: 600; }
+  nav button { all: unset; cursor: pointer; padding: 8px 10px; border-radius: 8px; color: var(--muted); }
+  nav button:hover { background: var(--field); color: var(--text); }
+  nav button[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); }
+  nav button:focus-visible { outline: 2px solid var(--accent); }
+  nav .count { float: right; color: var(--faint); font-size: 12px; }
+  main { overflow-y: auto; padding: 22px 28px 90px; }
+  section { display: none; max-width: 620px; }
+  section.on { display: block; }
+  h2 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .group { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row label { flex: 1; min-width: 0; }
+  .row .hint { display: block; color: var(--faint); font-size: 12px; margin-top: 1px; }
+  input[type=text], input[type=number], select, textarea {
+    font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  .row input[type=text], .row select { width: 220px; }
+  .row input[type=number] { width: 90px; }
+  select option { background: var(--panel); color: var(--text); }
+  /* switch */
+  .switch { position: relative; width: 38px; height: 22px; flex: none; }
+  .switch input { opacity: 0; position: absolute; inset: 0; margin: 0; cursor: pointer; }
+  .switch span { position: absolute; inset: 0; border-radius: 11px; background: var(--line); transition: background .2s; pointer-events: none; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(16px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.btn { font: inherit; cursor: pointer; border-radius: 8px; padding: 6px 12px; border: 1px solid var(--line); background: var(--field); color: var(--text); }
+  button.btn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.link { all: unset; cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 2px 6px; border-radius: 6px; }
+  button.link:hover { color: var(--danger); background: var(--field); }
+  ul.items { list-style: none; margin: 0; padding: 0; }
+  ul.items li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 16px; border-top: 1px solid var(--line); }
+  ul.items li:first-child { border-top: 0; }
+  ul.items li .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  ul.items li .sub { color: var(--faint); font-size: 12px; }
+  .empty { padding: 14px 16px; color: var(--faint); }
+  .add { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .add input { flex: 1; }
+  .routine-form { padding: 14px 16px; display: grid; gap: 8px; border-top: 1px solid var(--line); }
+  .routine-form textarea { min-height: 84px; resize: vertical; }
+  footer { position: fixed; left: 180px; right: 0; bottom: 0; padding: 12px 28px; display: flex; align-items: center; gap: 12px; background: var(--bg); border-top: 1px solid var(--line); }
+  #status { color: var(--muted); flex: 1; font-size: 12.5px; }
+  #status.ok { color: var(--ok); }
+  kbd { font: 12px ui-monospace, Consolas, monospace; background: var(--field); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+  @media (max-width: 620px) { body { grid-template-columns: 1fr; } nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); } nav h1 { width: 100%; } footer { left: 0; } .row { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<nav role="tablist" aria-label="Settings sections">
+  <h1 id="title">Settings</h1>
+  <button role="tab" data-tab="general" aria-selected="true">General</button>
+  <button role="tab" data-tab="voice">Voice &amp; listening</button>
+  <button role="tab" data-tab="memory">Memory <span class="count" id="n-memory"></span></button>
+  <button role="tab" data-tab="routines">Routines <span class="count" id="n-routines"></span></button>
+  <button role="tab" data-tab="reminders">Reminders <span class="count" id="n-reminders"></span></button>
+</nav>
+
+<main>
+  <section id="general" class="on">
+    <h2>General</h2>
+    <p class="lead">Changes apply as soon as you save.</p>
+    <div class="group">
+      <div class="row"><label for="userName">Your name<span class="hint">Used in greetings.</span></label><input type="text" id="userName" data-key="userName"></div>
+      <div class="row"><label for="assistantName">Assistant's name<span class="hint">Say "Hey …" with this name to wake her.</span></label><input type="text" id="assistantName" data-key="assistantName"></div>
+      <div class="row"><label for="model">Claude model<span class="hint">Sonnet is quick; Opus is smartest but slower and uses more of your limits.</span></label>
+        <select id="model" data-key="model"><option value="haiku">Haiku (fastest)</option><option value="sonnet">Sonnet (recommended)</option><option value="opus">Opus (smartest)</option></select></div>
+      <div class="row"><label for="hotkey">Push-to-talk hotkey<span class="hint">For example <kbd>Control+Alt+V</kbd>.</span></label><input type="text" id="hotkey" data-key="hotkey"></div>
+    </div>
+    <div class="group">
+      <div class="row"><label for="fastCommands">Instant commands<span class="hint">Volume, music, open apps, time, timers… done in under a second without Claude.</span></label><span class="switch"><input type="checkbox" id="fastCommands" data-key="fastCommands"><span></span></span></div>
+      <div class="row"><label for="screenGlow">Screen glow while it works<span class="hint">Glowing edges, status pill and click ripples.</span></label><span class="switch"><input type="checkbox" id="screenGlow" data-key="screenGlow"><span></span></span></div>
+      <div class="row"><label for="autostart">Start with Windows</label><span class="switch"><input type="checkbox" id="autostart" data-key="autostart"><span></span></span></div>
+    </div>
+    <button class="btn" id="openFile">Open the settings file</button>
+  </section>
+
+  <section id="voice">
+    <h2>Voice &amp; listening</h2>
+    <p class="lead">How she hears you and talks back.</p>
+    <div class="group">
+      <div class="row"><label for="wakeWordEnabled">Wake word<span class="hint">Listen for "Hey Nova". The hotkey always works.</span></label><span class="switch"><input type="checkbox" id="wakeWordEnabled" data-key="wakeWordEnabled"><span></span></span></div>
+      <div class="row"><label for="wakeWord">Wake phrases<span class="hint">Comma-separated.</span></label><input type="text" id="wakeWord" data-key="wakeWord"></div>
+      <div class="row"><label for="conversation">Conversation mode<span class="hint">Keep listening after each reply, no wake word needed.</span></label><span class="switch"><input type="checkbox" id="conversation" data-key="conversation"><span></span></span></div>
+      <div class="row"><label for="followUpSeconds">Go to sleep after (seconds of silence)</label><input type="number" id="followUpSeconds" data-key="followUpSeconds" min="5" max="300"></div>
+      <div class="row"><label for="endOfSpeechMs">Wait after you stop talking (ms)<span class="hint">Raise it if she acts before you finish a sentence.</span></label><input type="number" id="endOfSpeechMs" data-key="endOfSpeechMs" min="300" max="4000" step="100"></div>
+      <div class="row"><label for="bargeIn">Let me interrupt while she speaks<span class="hint">Turn off on loud speakers without headphones.</span></label><span class="switch"><input type="checkbox" id="bargeIn" data-key="bargeIn"><span></span></span></div>
+      <div class="row"><label for="sttModel">Speech recognition</label>
+        <select id="sttModel" data-key="sttModel"><option value="parakeet">Parakeet (most accurate)</option><option value="whisper">Whisper</option></select></div>
+    </div>
+    <div class="group">
+      <div class="row"><label for="speak">Speak replies</label><span class="switch"><input type="checkbox" id="speak" data-key="speak"><span></span></span></div>
+      <div class="row"><label for="ttsSpeed">Speaking speed<span class="hint">1 is normal, 1.1 a little faster.</span></label><input type="number" id="ttsSpeed" data-key="ttsSpeed" min="0.5" max="2" step="0.05"></div>
+    </div>
+  </section>
+
+  <section id="memory">
+    <h2>Memory</h2>
+    <p class="lead">Facts she keeps between conversations. Say "remember that…" or add one here.</p>
+    <div class="group"><ul class="items" id="memoryList"></ul>
+      <form class="add" id="memoryForm"><input type="text" id="memoryInput" placeholder="e.g. My manager is Sara Khan" aria-label="New fact"><button class="btn" type="submit">Add</button></form>
+    </div>
+  </section>
+
+  <section id="routines">
+    <h2>Routines</h2>
+    <p class="lead">Say "start <i>name</i>" to run all the steps. Each step is a command, as you'd say it. <kbd>wait 3 seconds</kbd> pauses.</p>
+    <div class="group"><ul class="items" id="routineList"></ul>
+      <form class="routine-form" id="routineForm">
+        <input type="text" id="routineName" placeholder="Name, e.g. work mode" aria-label="Routine name">
+        <textarea id="routineSteps" placeholder="One step per line:&#10;open Visual Studio Code&#10;open Slack&#10;open github.com" aria-label="Steps, one per line"></textarea>
+        <div><button class="btn" type="submit">Save routine</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="reminders">
+    <h2>Reminders &amp; timers</h2>
+    <p class="lead">Say "remind me to … at 5 pm" or "set a timer for 10 minutes".</p>
+    <div class="group"><ul class="items" id="reminderList"></ul></div>
+  </section>
+</main>
+
+<footer>
+  <span id="status" role="status" aria-live="polite"></span>
+  <button class="btn primary" id="save">Save</button>
+</footer>
+
+<script src="settings.js"></script>
+</body>
+</html>

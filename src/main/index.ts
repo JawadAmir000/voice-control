@@ -1,21 +1,41 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, Tray, utilityProcess, type UtilityProcess } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, Notification, screen, session, Tray, utilityProcess, type UtilityProcess } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Brain } from '../brain/agent.js';
 import type { AgentStatus } from '../brain/host.js';
-import { CONFIG_FILE, loadConfig, saveConfig } from '../config.js';
+import { CONFIG_DIR, loadConfig, saveConfig } from '../config.js';
+import { Memory } from '../brain/memory.js';
+import { Reminders } from '../brain/reminders.js';
+import { Routines } from '../brain/routines.js';
+import { parseFast } from '../fast/commands.js';
 import { ps } from '../win/ps.js';
 import { desktopEvents } from '../win/desktop.js';
 import { Conversation } from './conversation.js';
+import { tryFast } from '../fast/windows.js';
+import { openSettings, refreshSettings, registerSettings, type SettingsDeps } from './settings.js';
+import type { Config } from '../config.js';
+import { downloadModels, haveModels, modelsDir, signInToClaude } from './setup.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..', '..');
 const APP_DIR = path.join(ROOT, 'app');
+const MODELS_DIR = modelsDir(ROOT);
 const log = (...a: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 if (!app.requestSingleInstanceLock()) app.quit();
+// Installed: notifications are labelled "Nova" (matches appId in package.json "build").
+if (app.isPackaged) app.setAppUserModelId('com.nova.voicecontrol');
 
 const cfg = loadConfig();
+const routines = new Routines(path.join(CONFIG_DIR, 'routines.json'));
+const memory = new Memory(path.join(CONFIG_DIR, 'memory.json'));
+// Reminders and timers: a Windows notification plus Nova saying it out loud.
+const reminders = new Reminders(path.join(CONFIG_DIR, 'reminders.json'), (r, message) => {
+  log('reminder due:', message);
+  if (Notification.isSupported()) new Notification({ title: r.kind === 'timer' ? 'Timer done' : `${cfg.assistantName || 'Nova'} reminder`, body: message, icon: path.join(APP_DIR, 'icon.png') }).show();
+  convo.announce(message);
+  refreshSettings();
+});
 let orb: BrowserWindow;
 let overlay: BrowserWindow | undefined;
 let tray: Tray;
@@ -61,7 +81,7 @@ function startVoice() {
     } else if (m.type === 'error') { log('voice error, using Windows speech:', m.message); voiceReady = false; }
   });
   voiceProc.on('exit', (code) => { voiceReady = false; log('voice process exited', code); if (!quitting && code !== 0) setTimeout(startVoice, 2000); });
-  voiceProc.postMessage({ type: 'init', modelsDir: path.join(ROOT, 'models'), voice: cfg.ttsVoice, speed: cfg.ttsSpeed });
+  voiceProc.postMessage({ type: 'init', modelsDir: MODELS_DIR, voice: cfg.ttsVoice, speed: cfg.ttsSpeed });
 }
 
 function speak(text: string): Promise<void> {
@@ -119,6 +139,9 @@ const convo = new Conversation(
     tts,
     mute: (on) => audio?.postMessage({ type: 'mute', on }),
     send: (text) => brain.send(text),
+    routine: (text) => routines.match(text),
+    canFast: (text) => cfg.fastCommands && parseFast(text) !== undefined,
+    fast: (text) => (cfg.fastCommands ? tryFast(text, reminders) : Promise.resolve(undefined)),
     interrupt: () => brain.interrupt(),
     escapeKey: (on) => {
       escapeWanted = on;
@@ -153,7 +176,7 @@ function startAudio() {
     else if (m.type === 'error') { log('speech error:', m.message); ui('reply', `Speech error: ${m.message}`); }
   });
   audio.on('exit', (code) => { log('speech worker exited', code); if (quitting || code === 0) return; setTimeout(startAudio, 2000); });
-  audio.postMessage({ type: 'init', modelsDir: path.join(ROOT, 'models'), stt: cfg.sttModel, whisper: cfg.whisper, name: cfg.wakeWordEnabled ? cfg.assistantName : '' });
+  audio.postMessage({ type: 'init', modelsDir: MODELS_DIR, stt: cfg.sttModel, whisper: cfg.whisper, name: cfg.wakeWordEnabled ? cfg.assistantName : '' });
 }
 
 // ---------------------------------------------------------------- window & tray
@@ -224,17 +247,102 @@ function buildMenu() {
     { type: 'separator' },
     { label: 'Conversation mode (keep listening after replies)', type: 'checkbox', checked: cfg.conversation, click: (i) => toggle('conversation', i.checked) },
     { label: 'Let me interrupt while it speaks', type: 'checkbox', checked: cfg.bargeIn, click: (i) => toggle('bargeIn', i.checked) },
-    { label: 'Screen glow while AI works', type: 'checkbox', checked: cfg.screenGlow, click: (i) => { cfg.screenGlow = i.checked; saveConfig(cfg); if (i.checked && !overlay) createOverlay(); if (!i.checked) { overlay?.destroy(); overlay = undefined; } } },
+    { label: 'Screen glow while AI works', type: 'checkbox', checked: cfg.screenGlow, click: (i) => { cfg.screenGlow = i.checked; saveConfig(cfg); setOverlay(i.checked); } },
     { label: 'Speak replies', type: 'checkbox', checked: cfg.speak, click: (i) => toggle('speak', i.checked) },
     { label: 'Start with Windows', type: 'checkbox', checked: cfg.autostart, click: (i) => { cfg.autostart = i.checked; saveConfig(cfg); applyAutostart(); } },
-    { label: 'Settings file…', click: () => shell.openPath(CONFIG_FILE) },
+    { label: 'Settings, memory & routines…', click: () => openSettings(settingsDeps) },
+    { label: 'Sign in to Claude…', click: () => signInToClaude(log) },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
 }
 
+// ---------------------------------------------------------------- live settings
+
+/** Registers the push-to-talk hotkey, falling back to alternatives if it's taken. */
+function registerHotkey(): string[] {
+  const notes: string[] = [];
+  if (activeHotkey) globalShortcut.unregister(activeHotkey);
+  activeHotkey = '';
+  for (const key of [cfg.hotkey, 'Control+Alt+V', 'Control+Alt+J', 'Control+Shift+F12']) {
+    let ok = false;
+    try { ok = globalShortcut.register(key, () => convo.toggle()); } catch { /* not a valid accelerator */ }
+    if (ok) { activeHotkey = key; break; }
+    log(`Hotkey ${key} is in use by another app (or invalid), trying the next one`);
+    if (key === cfg.hotkey) notes.push(`The hotkey ${key} isn't available, so I'm using another one.`);
+  }
+  if (activeHotkey && activeHotkey !== cfg.hotkey) notes.push(`Push-to-talk is ${activeHotkey}.`);
+  return notes;
+}
+
+function makeBrain() {
+  return new Brain(convo.host, { model: cfg.model, userName: cfg.userName, assistantName: cfg.assistantName, services: { memory, reminders, routines }, log });
+}
+
+/** Starts a fresh Claude session with the new settings, once the current task (if any) is done. */
+let brainRestartTimer: NodeJS.Timeout | undefined;
+function restartBrain() {
+  clearTimeout(brainRestartTimer); // several saves during one task still mean one restart
+  if (convo.mode === 'busy' || convo.mode === 'awaiting') return void (brainRestartTimer = setTimeout(restartBrain, 1000));
+  brainRestartTimer = undefined;
+  log('restarting Claude session with new settings');
+  brain.stop();
+  brain = makeBrain();
+  brain.start();
+}
+
+/** True once the speech worker may run (models present; after a first-run download). */
+let speechStarted = false;
+
+function restartAudio() {
+  if (!speechStarted) return; // startSpeech() will start it with the new settings
+  const old = audio;
+  audio = undefined;
+  old?.removeAllListeners('exit');
+  old?.kill();
+  startAudio();
+}
+
+function restartVoice() {
+  if (!speechStarted) return;
+  const old = voiceProc;
+  voiceProc = undefined;
+  voiceReady = false;
+  old?.removeAllListeners('exit');
+  old?.kill();
+  if (cfg.ttsVoice) startVoice();
+}
+
+function setOverlay(on: boolean) {
+  if (on && !overlay) createOverlay();
+  if (!on) { overlay?.destroy(); overlay = undefined; }
+}
+
+/** Applies changed settings to the running app. Returns notes for the Settings window. */
+function applySettings(prev: Config, next: Config): string[] {
+  const changed = (...keys: (keyof Config)[]) => keys.some((k) => prev[k] !== next[k]);
+  const notes: string[] = [];
+  Object.assign(convo.opts, {
+    wakeWord: next.wakeWord, wakeWordEnabled: next.wakeWordEnabled, conversation: next.conversation,
+    followUpMs: next.followUpSeconds * 1000, bargeIn: next.bargeIn, speak: next.speak, settleMs: next.endOfSpeechMs,
+    userName: next.userName, assistantName: next.assistantName,
+  });
+  if (changed('hotkey')) notes.push(...registerHotkey());
+  if (changed('screenGlow')) setOverlay(next.screenGlow);
+  if (changed('autostart')) applyAutostart();
+  if (changed('model', 'userName', 'assistantName')) restartBrain();
+  if (changed('sttModel', 'whisper', 'assistantName', 'wakeWordEnabled')) restartAudio();
+  if (changed('ttsVoice', 'ttsSpeed')) restartVoice();
+  ui('config', { hotkey: activeHotkey, wakeWord: next.wakeWord, assistantName: next.assistantName });
+  fx('config', { assistantName: next.assistantName || 'AI Assistant' });
+  updateTrayMenu();
+  return notes;
+}
+
+const settingsDeps: SettingsDeps = { cfg, appDir: APP_DIR, memory, routines, reminders, apply: applySettings, log };
+
 function applyAutostart() {
-  app.setLoginItemSettings({ openAtLogin: cfg.autostart, path: process.execPath, args: [ROOT] });
+  app.setLoginItemSettings({ openAtLogin: cfg.autostart, path: process.execPath, args: app.isPackaged ? [] : [ROOT] });
 }
 
 app.whenReady().then(() => {
@@ -247,10 +355,8 @@ app.whenReady().then(() => {
   tray = new Tray(nativeImage.createFromPath(path.join(APP_DIR, 'icon.png')));
   tray.on('click', () => convo.toggle());
 
-  for (const key of [cfg.hotkey, 'Control+Alt+V', 'Control+Alt+J', 'Control+Shift+F12']) {
-    if (globalShortcut.register(key, () => convo.toggle())) { activeHotkey = key; break; }
-    log(`Hotkey ${key} is in use by another app, trying the next one`);
-  }
+  registerHotkey();
+  registerSettings(settingsDeps);
   updateTrayMenu();
   applyAutostart();
 
@@ -265,23 +371,42 @@ app.whenReady().then(() => {
   ipcMain.on('quit', () => app.quit());
   ipcMain.on('visual', (_e, st: string) => fx('state', st));
   ipcMain.on('level', (_e, v: number) => fx('level', v));
+  ipcMain.on('open-settings', () => openSettings(settingsDeps));
   ipcMain.on('orb-menu', () => buildMenu().popup({ window: orb }));
   ipcMain.on('interactive',(_e, on: boolean) => orb.setIgnoreMouseEvents(!on, { forward: true }));
   ui('config', { hotkey: activeHotkey, wakeWord: cfg.wakeWord, assistantName: cfg.assistantName });
 
-  brain = new Brain(convo.host, { model: cfg.model, userName: cfg.userName, assistantName: cfg.assistantName, log });
+  brain = makeBrain();
+  reminders.start();
   brain.start();
-  startAudio();
-  if (cfg.ttsVoice) startVoice();
+  void startSpeech();
   convo.setPaused(false); // shows the idle status
+  if (process.argv.includes('--settings')) openSettings(settingsDeps);
   log(`Ready. Say "Hello ${cfg.assistantName || 'computer'}" or press ${activeHotkey}. Conversation mode ${cfg.conversation ? 'on' : 'off'}, interrupting ${cfg.bargeIn ? 'on' : 'off'}.`);
 });
 
+/** Starts listening and the voice; on an installed copy's first run, downloads the models first. */
+async function startSpeech() {
+  if (!haveModels(MODELS_DIR) && app.isPackaged) {
+    log('speech models missing, downloading to', MODELS_DIR);
+    const ok = await downloadModels(ROOT, MODELS_DIR, (msg) => { ui('reply', msg); ui('status', { status: 'thinking', detail: msg }); }, log);
+    ui('reply', ok ? 'Speech models ready. Say "Hey Nova", or press ' + activeHotkey + '.' : "Couldn't download the speech models. Check your internet connection and restart Nova. You can still type to me.");
+    convo.setPaused(convo.paused); // back to the normal status
+    if (!ok) return;
+  }
+  speechStarted = true;
+  startAudio();
+  if (cfg.ttsVoice) startVoice();
+}
+
+// Starting Nova again while it's already running opens Settings.
+app.on('second-instance', () => openSettings(settingsDeps));
 app.on('window-all-closed', () => { /* keep running in the tray */ });
 app.on('will-quit', () => {
   quitting = true;
   globalShortcut.unregisterAll();
   brain?.stop();
+  reminders.stop();
   audio?.kill();
   voiceProc?.kill();
   ps.stop();

@@ -14,4 +14,16 @@ contextBridge.exposeInMainWorld('vc', {
   menu: () => ipcRenderer.send('orb-menu'),
   visual: (state) => ipcRenderer.send('visual', state),
   level: (v) => ipcRenderer.send('level', v),
+  // Settings window
+  settings: {
+    get: () => ipcRenderer.invoke('settings-get'),
+    save: (cfg) => ipcRenderer.invoke('settings-save', cfg),
+    addMemory: (text) => ipcRenderer.invoke('memory-add', text),
+    forget: (text) => ipcRenderer.invoke('memory-forget', text),
+    saveRoutine: (name, steps) => ipcRenderer.invoke('routine-save', name, steps),
+    deleteRoutine: (name) => ipcRenderer.invoke('routine-delete', name),
+    cancelReminder: (id) => ipcRenderer.invoke('reminder-cancel', id),
+    openFile: () => ipcRenderer.invoke('open-config-file'),
+  },
+  openSettings: () => ipcRenderer.send('open-settings'),
 });

@@ -43,6 +43,10 @@ const CONFIRM_SHELL: [RegExp, string][] = [
 
 const RISKY_BUTTON = /\b(send|submit|post|publish|buy|purchase|pay|checkout|place order|order now|delete|remove|uninstall|erase|format|transfer|confirm payment|sign out|log ?out)\b/i;
 
+const MAX_FACT = 300;
+/** Remembered "facts" that are really orders to Claude: possible injected instructions. */
+const INSTRUCTION_LIKE = /\b(ignore|disregard|override|always|never|must|should|don'?t (ask|tell|confirm)|without (asking|confirm\w*|telling)|instructions?|system prompt|prompt|forward|send|email (everything|all)|transfer|pay|download|run|execute|install|delete|password|https?:\/\/|www\.)/i;
+
 /** Luhn check, to spot card numbers being typed. */
 function looksLikeCard(text: string): boolean {
   for (const m of text.match(/\b(?:\d[ -]?){13,19}\b/g) ?? []) {
@@ -78,6 +82,31 @@ export function classify(toolName: string, input: Record<string, unknown>): Verd
       return { kind: 'allow' };
     }
     case 'window': {
+      return { kind: 'allow' };
+    }
+    case 'remember': {
+      const fact = String(input.fact ?? '');
+      if (looksLikeCard(fact) || /\b(password|passcode|pin( code)?|cvv|security code|secret|api key|token)\b/i.test(fact))
+        return { kind: 'deny', reason: 'Never store passwords, card numbers or other secrets in memory.', spoken: "I'd rather not keep passwords or card details, so I didn't save that." };
+      if (fact.length > MAX_FACT) return { kind: 'deny', reason: `Facts must be short (under ${MAX_FACT} characters). Save one short fact.` };
+      // Memory goes into every future session, so a "fact" that reads like an instruction could have
+      // been planted by a web page, email or document Claude read. The user hears it and decides.
+      if (INSTRUCTION_LIKE.test(fact)) return { kind: 'confirm', reason: `remember "${fact}" for future conversations` };
+      return { kind: 'allow' };
+    }
+    case 'forget': {
+      const about = String(input.about ?? '').trim().toLowerCase();
+      if (['*', 'all', 'everything'].includes(about)) return { kind: 'confirm', reason: 'forget everything I remember about you' };
+      return { kind: 'allow' };
+    }
+    case 'save_routine': {
+      // Routines run later from a single phrase: the user approves exactly what was saved.
+      const steps = Array.isArray(input.steps) ? input.steps.map(String) : [];
+      return { kind: 'confirm', reason: `save a routine "${String(input.name ?? '')}" that does: ${steps.join(', then ')}` };
+    }
+    case 'cancel_reminder': {
+      const about = String(input.about ?? '').trim().toLowerCase();
+      if (['*', 'all', 'everything', ''].includes(about)) return { kind: 'confirm', reason: 'cancel all your reminders and timers' };
       return { kind: 'allow' };
     }
     case 'open': {

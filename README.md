@@ -78,6 +78,29 @@ If it keeps interrupting itself (loud speakers, no headphones), turn off **Let m
 
 Try typed commands without the voice UI: `npm.cmd run try -- "open notepad and type hello"`.
 
+## What else she can do
+
+**Instant commands (under a second, no Claude).** Simple requests are done right on your PC, without waiting for Claude or using your subscription:
+
+| Say | Does |
+|---|---|
+| "volume up" / "turn it down a lot" / "mute" | changes the volume |
+| "pause the music", "next song", "previous track" | media keys |
+| "open Notepad", "open YouTube", "open my downloads folder", "go to github.com" | opens the app, site or folder |
+| "close Spotify" | closes that window |
+| "show desktop", "minimize everything", "take a screenshot", "lock my computer" | the Windows shortcut |
+| "what time is it", "what's the date" | answers straight away |
+
+Anything longer ("open Notepad and type hello") or unclear goes to Claude as usual, and Claude is told about the instant commands you ran, so follow-ups like "now type my shopping list" still work. Turn this off with `fastCommands`.
+
+**Memory.** Say "remember that my manager is Sara Khan" or "remember my project folder is D:\Work". Nova keeps these facts after a restart and uses them ("email my manager"). Ask "what do you remember about me?", or say "forget my manager". She never stores passwords or card numbers.
+
+**Reminders and timers.** "Set a timer for 10 minutes", "remind me to call Ali at 5:30 pm", "remind me in 20 minutes to stretch", "remind me tomorrow at 9 to send the report". When one is due you get a Windows notification and Nova says it out loud, waiting until she's finished any task. Reminders survive a restart; one that came due while Nova was closed is said when she starts. "What are my reminders?", "cancel the timer".
+
+**Routines.** One phrase runs several commands. Say "when I say *work mode*, open VS Code, open Slack and open GitHub", or make one in Settings. Then say "start work mode". Instant steps run immediately and the rest go to Claude together. A step can be `wait 3 seconds`.
+
+**Files and the clipboard.** "Find the PDF I downloaded yesterday", "open my budget spreadsheet", "summarise what I copied", "copy that to the clipboard". File search uses the Windows Search index where it covers your folders, and otherwise scans Desktop, Documents, Downloads, Pictures, Music and Videos.
+
 ## Safety
 
 Every action Claude takes goes through [src/brain/permissions.ts](src/brain/permissions.ts):
@@ -87,7 +110,9 @@ Every action Claude takes goes through [src/brain/permissions.ts](src/brain/perm
 
 ## Settings
 
-Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
+Tray menu → **Settings, memory & routines…** opens the Settings window. Most changes apply as soon as you save (a new model or speech recognizer restarts just that part). It also lists what Nova remembers, your routines and your reminders, and you can add or remove them there. Starting Nova again while it's running also opens Settings.
+
+Everything is stored in `%APPDATA%\voice-control\`: `config.json` (below), `memory.json`, `routines.json` and `reminders.json`. You can edit them by hand too.
 
 ```json
 {
@@ -106,7 +131,8 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
   "speak": true,
   "voice": "",
   "screenGlow": true,
-  "autostart": false
+  "autostart": false,
+  "fastCommands": true
 }
 ```
 
@@ -115,7 +141,16 @@ Tray menu → **Settings file…** opens `%APPDATA%\voice-control\config.json`:
 - `sttModel`: `"parakeet"` (default, most accurate) or `"whisper"`. For Whisper, run `npm.cmd run models -- base.en` (or `small.en`) and set `whisper` to that name. If Parakeet isn't downloaded, Whisper is used.
 - `ttsVoice`: the Piper voice (`"en_US-lessac-medium"`). Set it to `""` to use Windows speech instead. `ttsSpeed`: 1.1 speaks a bit faster.
 - `voice`: part of a Windows voice name, for the Windows-speech fallback.
-- Restart the app after editing.
+- `fastCommands`: do simple commands instantly without Claude (see above).
+- If you edit `config.json` by hand, restart the app. Changes made in the Settings window apply straight away.
+
+## Install on another PC
+
+`npm.cmd run dist` builds `release\Nova-<version>-win.zip`: unzip it anywhere and run `Nova.exe`. For a proper installer (`Nova Setup <version>.exe`, with Start-menu entry and uninstaller), run the **Build Windows installer** workflow in the GitHub Actions tab, or push a tag like `v0.2.0`. The installer and zip appear as downloads (attached to a release, for tags).
+
+On first launch, the installed app downloads the speech models (about 550 MB, once) and shows progress on the orb. Then use tray → **Sign in to Claude…** once.
+
+The builds aren't code-signed, so Windows SmartScreen warns the first time ("More info → Run anyway"). On PCs with **Smart App Control** turned on, Windows blocks unsigned apps completely. There, use the developer setup above (`npm.cmd run dev`).
 
 ## How it works
 
@@ -135,7 +170,12 @@ text → wake-word check → Claude Agent SDK session → pc tools → PowerShel
 | [src/audio/wake.ts](src/audio/wake.ts) | Wake-word / yes-no / stop matching |
 | [src/brain/agent.ts](src/brain/agent.ts) | Long-lived Claude session |
 | [src/brain/prompt.ts](src/brain/prompt.ts) | Instructions Claude follows |
-| [src/tools/pc.ts](src/tools/pc.ts) | Tools Claude can use: open_app, window, type_text, press_keys, read_ui, click_element, screenshot, click, scroll, run_powershell, ask_user… |
+| [src/tools/pc.ts](src/tools/pc.ts) | Tools Claude can use: open_app, window, type_text, press_keys, read_ui, click_element, screenshot, click, scroll, run_powershell, ask_user, find_files, clipboard, remember, set_reminder, save_routine… |
+| [src/fast/commands.ts](src/fast/commands.ts) | Instant commands that skip Claude; [src/fast/when.ts](src/fast/when.ts) understands spoken times |
+| [src/brain/memory.ts](src/brain/memory.ts), [reminders.ts](src/brain/reminders.ts), [routines.ts](src/brain/routines.ts) | Long-term memory, reminders and timers, routines |
+| [src/win/files.ts](src/win/files.ts) | File search and clipboard |
+| [src/main/settings.ts](src/main/settings.ts), [app/settings.html](app/settings.html) | The Settings window |
+| [src/main/setup.ts](src/main/setup.ts) | Installed app: first-run model download, Claude sign-in |
 | [app/helper.ps1](app/helper.ps1) | Win32 keyboard, mouse, windows, screenshots, UI Automation |
 
 Tests: `npm.cmd test`.

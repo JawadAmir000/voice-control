@@ -14,7 +14,9 @@
     "try": "tsc -p . && node dist/cli.js",
     "login": "node scripts/claude.mjs auth login --claudeai",
     "login-status": "node scripts/claude.mjs auth status",
-    "ui-preview": "node scripts/ui-preview.mjs"
+    "ui-preview": "node scripts/ui-preview.mjs",
+    "dist": "tsc -p . && electron-builder --win zip",
+    "dist:installer": "tsc -p . && electron-builder --win nsis"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.326",
@@ -25,7 +27,52 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "electron": "^45.3.4",
+    "electron-builder": "^26.18.0",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
+  },
+  "build": {
+    "appId": "com.nova.voicecontrol",
+    "productName": "Nova",
+    "copyright": "Personal use",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "app/**/*",
+      "scripts/download-models.mjs",
+      "scripts/claude.mjs",
+      "package.json",
+      "!**/*.map",
+      "!**/*.d.ts"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "app/icon-256.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nova",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

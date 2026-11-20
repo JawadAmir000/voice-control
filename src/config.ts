@@ -39,6 +39,8 @@ export type Config = {
   screenGlow: boolean;
   /** Start with Windows. */
   autostart: boolean;
+  /** Do simple commands (volume, media, open app, time…) instantly on this PC, without Claude. */
+  fastCommands: boolean;
 };
 
 export const DEFAULTS: Config = {
@@ -61,6 +63,7 @@ export const DEFAULTS: Config = {
   ttsSpeed: 1,
   screenGlow: true,
   autostart: false,
+  fastCommands: true,
 };
 
 export const CONFIG_DIR = path.join(process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming'), 'voice-control');
@@ -83,4 +86,28 @@ export function loadConfig(): Config {
 export function saveConfig(cfg: Config) {
   mkdirSync(CONFIG_DIR, { recursive: true });
   writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+}
+
+/** Keeps only known settings of the right type, with numbers in sensible ranges. Exported for tests. */
+export function cleanSettings(input: unknown, current: Config): Config {
+  const next: Config = { ...current };
+  if (!input || typeof input !== 'object') return next;
+  const src = input as Record<string, unknown>;
+  const range: Partial<Record<keyof Config, [number, number]>> = { followUpSeconds: [5, 300], endOfSpeechMs: [300, 4000], ttsSpeed: [0.5, 2] };
+  for (const key of Object.keys(DEFAULTS) as (keyof Config)[]) {
+    if (!(key in src)) continue;
+    const v = src[key];
+    const want = typeof DEFAULTS[key];
+    if (want === 'boolean' && typeof v === 'boolean') (next as Record<string, unknown>)[key] = v;
+    else if (want === 'string' && typeof v === 'string') (next as Record<string, unknown>)[key] = v.trim();
+    else if (want === 'number' && typeof v === 'number' && Number.isFinite(v)) {
+      const [lo, hi] = range[key] ?? [-Infinity, Infinity];
+      (next as Record<string, unknown>)[key] = Math.min(hi, Math.max(lo, v));
+    }
+  }
+  if (next.sttModel !== 'parakeet' && next.sttModel !== 'whisper') next.sttModel = current.sttModel;
+  if (!['sonnet', 'opus', 'haiku'].includes(next.model) && !/^claude-/.test(next.model)) next.model = current.model;
+  if (!next.hotkey) next.hotkey = current.hotkey;
+  if (!next.assistantName) next.assistantName = current.assistantName;
+  return next;
 }
