@@ -128,3 +128,22 @@ describe('connected accounts (Gmail etc.)', () => {
     expect(JSON.stringify(card)).not.toMatch(/mcp__/);
   });
 });
+
+import { LOST_CONNECTION, replyFor } from '../src/brain/agent.js';
+describe('task end replies are never technical', () => {
+  it('speaks the result on success', () => {
+    expect(replyFor('success', ' Notepad is open. ', '', false)).toBe('Notepad is open.');
+    expect(replyFor('success', '', 'Done.', false)).toBe('Done.');
+  });
+  it('says "Stopped." when the user stopped it (real log: error_during_execution)', () => {
+    expect(replyFor('error_during_execution', undefined, '', true)).toBe('Stopped.');
+  });
+  it('hides error codes', () => {
+    for (const s of ['error_during_execution', 'error_max_turns', 'error_max_budget_usd']) {
+      const r = replyFor(s, undefined, 'half-done text', false);
+      expect(r).not.toMatch(/error|_/i);
+      expect(r).toMatch(/couldn't finish/);
+    }
+    expect(LOST_CONNECTION).not.toMatch(/claude|error|connect(ion)? to/i);
+  });
+});

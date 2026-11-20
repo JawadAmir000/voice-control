@@ -76,6 +76,8 @@ export class Conversation {
   private bargeText?: string;
   private userTalking = false;
   private stopped = false;
+  /** Wake phrase the listener just heard ("hello nova"), until its clip's transcript arrives. */
+  private keyword?: string;
 
   constructor(private fx: Effects, public opts: ConversationOptions) {}
 
@@ -158,8 +160,37 @@ export class Conversation {
     }
   }
 
-  /** A finished utterance from Whisper ('' if it was only noise). */
-  onText(text: string) {
+  /**
+   * The wake-word listener heard "Hey Nova" (by sound, before any transcript). Wakes at once.
+   * The clip's transcript follows with only what came after the wake phrase.
+   */
+  onKeyword(phrase: string) {
+    if (this.mode !== 'idle' || this.paused || !this.opts.wakeWordEnabled) return;
+    if (this.speaking || Date.now() - this.spokeUntil < ECHO_TAIL_MS) return; // its own voice saying its name
+    this.fx.log('woken by wake word:', phrase);
+    this.wake();
+    this.keyword = phrase;
+  }
+
+  /**
+   * A finished utterance from the recognizer ('' if it was only noise).
+   * afterWake: the wake-word listener already woke us and this is only the part after "Hey Nova".
+   */
+  onText(text: string, afterWake = false) {
+    const keyword = this.keyword;
+    this.keyword = undefined;
+    // A clip that began while it was talking may be its own voice saying "I'm Nova": that one
+    // still goes through the echo check below.
+    if (afterWake && !(this.suspectQueue[0] ?? this.speaking)) {
+      this.suspectQueue.shift();
+      if (!text) {
+        // Just the wake phrase. "Hello Nova" still gets the introduction; "Hey Nova" only wakes.
+        if (keyword && this.mode === 'listening' && !this.buffer && this.greets(keyword) && !/^hey\b/.test(keyword)) void this.run(keyword);
+        return this.nothingNew();
+      }
+      this.fx.ui('heard', text);
+      return this.route(text);
+    }
     const suspect = this.suspectQueue.length ? this.suspectQueue.shift()! : this.speaking;
     if (suspect) {
       const yours = text ? stripEcho(text, this.recentlySpoken()) : '';

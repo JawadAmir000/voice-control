@@ -1,6 +1,6 @@
-// Downloads the free local speech models (voice activity detection + Whisper).
-// Usage: npm run models            (Whisper base.en, ~200 MB)
-//        npm run models -- small.en (more accurate, slower)
+// Downloads the free local speech models (voice activity detection, speech recognition, voice).
+// Usage: npm run models             (Parakeet TDT 0.6B v2, ~480 MB: the default recognizer)
+//        npm run models -- base.en  (also a Whisper model, for "sttModel": "whisper")
 import { existsSync, mkdirSync, createWriteStream, renameSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..', 'models');
-const whisper = process.argv[2] || 'base.en';
+const whisper = process.argv[2]; // optional Whisper model name
 const base = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models';
 mkdirSync(root, { recursive: true });
 // Use Windows' own bsdtar; Git's GNU tar misreads "C:" as a remote host.
@@ -27,14 +27,20 @@ const vad = path.join(root, 'silero_vad.onnx');
 if (!existsSync(vad)) await download(`${base}/silero_vad.onnx`, vad);
 else console.log('VAD model already present');
 
-const dir = path.join(root, `sherpa-onnx-whisper-${whisper}`);
-if (!existsSync(dir)) {
-  const archive = path.join(root, `whisper-${whisper}.tar.bz2`);
-  if (!existsSync(archive)) await download(`${base}/sherpa-onnx-whisper-${whisper}.tar.bz2`, archive);
-  console.log('Extracting...');
+async function fetchModel(name, label, release = base) {
+  if (existsSync(path.join(root, name))) return console.log(`${label} already present`);
+  const archive = path.join(root, `${name}.tar.bz2`);
+  if (!existsSync(archive)) await download(`${release}/${name}.tar.bz2`, archive);
+  console.log(`Extracting ${label}...`);
   execFileSync(tar, ['-xjf', archive, '-C', root], { stdio: 'inherit' });
   (await import('node:fs')).rmSync(archive);
-} else console.log(`Whisper ${whisper} already present`);
+}
+
+// Parakeet: far more accurate than Whisper base, and it doesn't invent sentences from noise.
+await fetchModel('sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8', 'Parakeet');
+// Wake-word listener: a small keyword spotter that hears "Hey Nova" by sound, not by spelling.
+await fetchModel('sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01', 'Wake-word model', 'https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models');
+if (whisper) await fetchModel(`sherpa-onnx-whisper-${whisper}`, `Whisper ${whisper}`);
 // Natural-sounding local voice for replies (Piper, played inside the app so echo cancellation works).
 const voice = process.env.VC_VOICE || 'en_US-lessac-medium';
 const vdir = path.join(root, `vits-piper-${voice}`);

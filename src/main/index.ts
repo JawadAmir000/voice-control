@@ -94,6 +94,20 @@ function tts(cmd: 'pause' | 'resume' | 'cancel') {
 
 // ---------------------------------------------------------------- conversation
 
+// Esc stops the AI while it works. While the AI presses keys itself, Esc is released:
+// otherwise its own Esc (closing a dialog) would stop it, and never reach the dialog.
+let escapeWanted = false;
+let aiPressingKeys = false;
+function syncEscape() {
+  const on = escapeWanted && !aiPressingKeys;
+  if (on && !globalShortcut.isRegistered('Escape')) globalShortcut.register('Escape', () => void convo.stop());
+  else if (!on && globalShortcut.isRegistered('Escape')) globalShortcut.unregister('Escape');
+}
+desktopEvents.on('keys', (pressing: boolean) => {
+  aiPressingKeys = pressing;
+  syncEscape();
+});
+
 const convo = new Conversation(
   {
     status: (s: AgentStatus | 'paused', detail = '') => {
@@ -107,8 +121,8 @@ const convo = new Conversation(
     send: (text) => brain.send(text),
     interrupt: () => brain.interrupt(),
     escapeKey: (on) => {
-      if (on) globalShortcut.register('Escape', () => void convo.stop());
-      else globalShortcut.unregister('Escape');
+      escapeWanted = on;
+      syncEscape();
     },
     log,
   },
@@ -127,17 +141,19 @@ const convo = new Conversation(
 
 function startAudio() {
   audio = utilityProcess.fork(path.join(here, '..', 'audio', 'worker.js'), [], { serviceName: 'Voice Control speech' });
-  audio.on('message', (m: { type: string; text?: string; raw?: string; db?: number; on?: boolean; message?: string; ms?: number; seconds?: number }) => {
-    if (m.type === 'ready') { log('speech models loaded'); ui('mic-ready'); }
+  audio.on('message', (m: { type: string; text?: string; raw?: string; db?: number; on?: boolean; message?: string; ms?: number; seconds?: number; model?: string; phrase?: string; afterWake?: number }) => {
+    if (m.type === 'ready') { log('speech models loaded:', m.model); ui('mic-ready'); }
     else if (m.type === 'speech') { ui('vad', m.on); convo.onSpeech(!!m.on); }
+    else if (m.type === 'wake') { log('wake word heard:', m.phrase); convo.onKeyword(m.phrase ?? ''); }
     else if (m.type === 'text') {
-      log(`stt ${m.seconds?.toFixed(1)}s audio, ${m.db} dB → ${m.ms}ms [${convo.mode}]:`, m.text || `(noise${m.raw ? `: "${m.raw}"` : ''})`);
-      convo.onText(m.text ?? '');
+      const cut = m.afterWake !== undefined ? ` (after wake word at ${m.afterWake.toFixed(1)}s)` : '';
+      log(`stt ${m.seconds?.toFixed(1)}s audio, ${m.db} dB → ${m.ms}ms [${convo.mode}]${cut}:`, m.text || `(noise${m.raw ? `: "${m.raw}"` : ''})`);
+      convo.onText(m.text ?? '', m.afterWake !== undefined);
     }
     else if (m.type === 'error') { log('speech error:', m.message); ui('reply', `Speech error: ${m.message}`); }
   });
   audio.on('exit', (code) => { log('speech worker exited', code); if (quitting || code === 0) return; setTimeout(startAudio, 2000); });
-  audio.postMessage({ type: 'init', modelsDir: path.join(ROOT, 'models'), whisper: cfg.whisper });
+  audio.postMessage({ type: 'init', modelsDir: path.join(ROOT, 'models'), stt: cfg.sttModel, whisper: cfg.whisper, name: cfg.wakeWordEnabled ? cfg.assistantName : '' });
 }
 
 // ---------------------------------------------------------------- window & tray

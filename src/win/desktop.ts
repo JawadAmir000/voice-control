@@ -4,7 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { ps, psStr } from './ps.js';
 
-/** Lets the UI show what the AI does: 'click' { x, y } in physical screen pixels. */
+/** Lets the UI show what the AI does: 'click' { x, y } in physical screen pixels, 'keys' true/false while it types. */
 export const desktopEvents = new EventEmitter();
 
 // ---------- coordinates ----------
@@ -180,13 +180,25 @@ export function parseChord(chord: string): number[] {
     });
 }
 
+/** Tells the app the AI is sending keys ('keys' true/false), so its own Esc isn't taken as "stop". */
+async function sendingKeys(fn: () => Promise<void>) {
+  desktopEvents.emit('keys', true);
+  try {
+    await fn();
+  } finally {
+    desktopEvents.emit('keys', false);
+  }
+}
+
 export async function pressKeys(chord: string, times = 1) {
   const codes = parseChord(chord);
-  for (let i = 0; i < times; i++) await ps.run(`[VC]::Chord([uint16[]]@(${codes.join(',')})); Out-Json 'ok'`);
+  await sendingKeys(async () => {
+    for (let i = 0; i < times; i++) await ps.run(`[VC]::Chord([uint16[]]@(${codes.join(',')})); Out-Json 'ok'`);
+  });
 }
 
 export async function typeText(text: string) {
-  await ps.run(`[VC]::TypeText(${psStr(text)}); Out-Json 'ok'`);
+  await sendingKeys(() => ps.run(`[VC]::TypeText(${psStr(text)}); Out-Json 'ok'`).then(() => {}));
 }
 
 export async function click(x: number, y: number, button = 'left', clicks = 1) {

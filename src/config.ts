@@ -13,7 +13,9 @@ export type Config = {
   hotkey: string;
   /** Claude model alias: "sonnet" (fast), "opus" (smartest), "haiku" (fastest). */
   model: string;
-  /** Whisper model folder name downloaded by `npm run models -- <name>`. */
+  /** Speech recognizer: "parakeet" (accurate, default) or "whisper". */
+  sttModel: 'parakeet' | 'whisper';
+  /** Whisper model downloaded by `npm run models -- <name>`; used when sttModel is "whisper" or Parakeet is missing. */
   whisper: string;
   /** Listen for the wake word at all (hotkey always works). */
   wakeWordEnabled: boolean;
@@ -46,6 +48,7 @@ export const DEFAULTS: Config = {
   // Ctrl+Alt+Space is taken by the Claude desktop app's Quick Entry.
   hotkey: 'Control+Alt+V',
   model: 'sonnet',
+  sttModel: 'parakeet',
   whisper: 'base.en',
   wakeWordEnabled: true,
   conversation: true,

@@ -29,11 +29,21 @@ class Inbox implements AsyncIterable<SDKUserMessage> {
   }
 }
 
+export const LOST_CONNECTION = "Sorry, I lost my connection. Can you try that again?";
+
+/** What to tell the user when a task ends. Never technical: the reason goes to the log instead. */
+export function replyFor(subtype: string, result: string | undefined, lastText: string, interrupted: boolean): string {
+  if (subtype === 'success') return (result || lastText).trim();
+  if (interrupted) return 'Stopped.';
+  return "Sorry, I couldn't finish that.";
+}
+
 /** The "brain": a Claude Agent SDK session that runs on the user's Claude subscription login. */
 export class Brain {
   private inbox = new Inbox();
   private q?: Query;
   private busy = false;
+  private interrupted = false;
   private onDone?: (reply: string) => void;
   private log: (...a: unknown[]) => void;
 
@@ -95,15 +105,17 @@ export class Brain {
             if (block.type === 'tool_use') this.host.status('acting');
           }
         } else if (m.type === 'result') {
-          const reply = m.subtype === 'success' ? (m.result || lastText) : `Sorry, that failed: ${m.subtype}`;
+          if (m.subtype !== 'success') this.log('task ended:', m.subtype);
+          const reply = replyFor(m.subtype, m.subtype === 'success' ? m.result : '', lastText, this.interrupted);
           lastText = '';
-          this.finish(reply.trim());
+          this.interrupted = false;
+          this.finish(reply);
         }
       }
     } catch (e) {
       this.log('session error', e);
-      this.host.status('error', (e as Error).message);
-      this.finish(`Sorry, my connection to Claude broke: ${(e as Error).message}`);
+      this.host.status('error');
+      this.finish(LOST_CONNECTION); // details stay in the log
       // Restart a fresh session so the next command works.
       this.inbox = new Inbox();
       this.q = undefined; // the next send() starts a fresh session
@@ -132,6 +144,7 @@ export class Brain {
   async interrupt() {
     if (!this.busy) return;
     this.log('interrupt');
+    this.interrupted = true;
     await this.q?.interrupt().catch(() => {});
   }
 

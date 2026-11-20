@@ -410,3 +410,97 @@ describe('Nova mishearings (real log)', () => {
     expect(w.c.mode).toBe('idle');
   });
 });
+
+import { matchWake as wakeMatch } from '../src/audio/wake.js';
+describe('greeting glued to the name (Parakeet, real log)', () => {
+  const W = 'hey nova, hey computer';
+  it('wakes on "Hanova." and friends', () => {
+    for (const t of ['Hanova.', 'Heynova.', 'Hinova!', 'Ehnova.', 'Henova', 'Heynoah.', 'Hellonova.'])
+      expect(wakeMatch(t, W).woke, t).toBe(true);
+  });
+  it('keeps the command', () => {
+    expect(wakeMatch('Hanova, open Notepad.', W)).toEqual({ woke: true, rest: 'open Notepad.' });
+  });
+  it('ignores ordinary words', () => {
+    for (const t of ['Another one.', 'Enough of that.', 'Announce it.', 'Anomaly detected.', 'Honestly no.', 'Hello there.', 'Have a nice day.'])
+      expect(wakeMatch(t, W).woke, t).toBe(false);
+  });
+});
+
+describe('whole-clip mishearings of "Hey Nova" (Parakeet, real log)', () => {
+  const W = 'hey nova, hey computer';
+  it('wakes on "And over." alone', () => {
+    for (const t of ['And over.', 'An over.', 'Hand over!', 'Hanover.', 'And Nova.'])
+      expect(wakeMatch(t, W).woke, t).toBe(true);
+  });
+  it('not inside a real sentence', () => {
+    for (const t of ['Hand over the file.', 'And over there.', 'Game over.', 'Over.'])
+      expect(wakeMatch(t, W).woke, t).toBe(false);
+  });
+});
+
+describe('sound-alike names after a greeting (Parakeet, real log)', () => {
+  const W = 'hey nova, hey computer';
+  it('"Hi Lopa, can you hear me?" wakes Nova', () => {
+    expect(wakeMatch('Hi Lopa, can you hear me?', W)).toEqual({ woke: true, rest: 'can you hear me?' });
+    for (const t of ['Hey Noba.', 'Hello Mova.', 'Hey Lova.', 'Hi Nopa.'])
+      expect(wakeMatch(t, W).woke, t).toBe(true);
+  });
+  it('other names after a greeting do not', () => {
+    for (const t of ['Hi Laura.', 'Hey Mom.', 'Hello Lisa.', 'Hi Bob.', 'Hey Sarah, come here.', 'Hi Mark.'])
+      expect(wakeMatch(t, W).woke, t).toBe(false);
+  });
+});
+
+import { parseVocab, tokenize, wakeKeywords } from '../src/audio/kws.js';
+describe('wake-word listener', () => {
+  const nova = { wakeWord: 'hey nova, hey computer', assistantName: 'Nova', userName: 'Jawad' };
+  /** The listener fires mid-clip; the clip's transcript then holds only what came after. */
+  const spotted = (s: ReturnType<typeof setup>, phrase: string, after: string) => {
+    s.c.onSpeech(true); s.c.onKeyword(phrase); s.c.onSpeech(false); s.c.onText(after, true);
+  };
+  it('"Hey Nova, open Notepad" runs just the command', async () => {
+    const s = setup(nova);
+    spotted(s, 'hey nova', 'open Notepad.');
+    expect(s.c.mode).toBe('listening');
+    await vi.advanceTimersByTimeAsync(800);
+    expect(s.sent).toEqual(['open Notepad.']);
+  });
+  it('"Hey Nova" alone wakes and waits for the command', async () => {
+    const s = setup(nova);
+    spotted(s, 'hey nova', '');
+    expect(s.c.mode).toBe('listening');
+    s.talk('What time is it?');
+    await vi.advanceTimersByTimeAsync(800);
+    expect(s.sent).toEqual(['What time is it?']);
+  });
+  it('"Hello Nova" alone still gets the introduction (no Claude call)', async () => {
+    const s = setup(nova);
+    spotted(s, 'hello nova', '');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.sent).toEqual([]);
+    expect(s.spoken[0]).toMatch(/I'm Nova/);
+  });
+  it('its own voice saying its name does not wake it or leak in as a command', async () => {
+    const s = setup(nova);
+    s.c.wake();
+    s.talk('open Notepad');
+    await vi.advanceTimersByTimeAsync(800); // now speaking "Done: open Notepad"
+    s.c.onSpeech(true); s.c.onKeyword('hi nova'); s.c.onSpeech(false);
+    s.c.onText('Done: open Notepad', true);
+    await s.endSpeech();
+    expect(s.sent).toEqual(['open Notepad']);
+  });
+  it('ignored while paused', () => {
+    const s = setup(nova);
+    s.c.setPaused(true);
+    s.c.onKeyword('hey nova');
+    expect(s.c.mode).toBe('idle');
+  });
+  it('builds keyword lines from the model vocabulary', () => {
+    const vocab = parseVocab('▁HE 1\nY 2\n▁NO 3\nV 4\nA 5\n▁HI 6\nLL 7\nO 8\n▁OKAY 9\n');
+    expect(tokenize('Nova', vocab)).toEqual(['▁NO', 'V', 'A']);
+    expect(wakeKeywords('Nova', vocab)).toEqual(['▁HE Y ▁NO V A @hey_nova', '▁HI ▁NO V A @hi_nova', '▁HE LL O ▁NO V A @hello_nova', '▁OKAY ▁NO V A @okay_nova']);
+    expect(tokenize('Zed', vocab)).toBeUndefined();
+  });
+});

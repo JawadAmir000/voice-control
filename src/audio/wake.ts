@@ -30,6 +30,12 @@ export const wakePhrases = (setting: string) => setting.split(',').map((p) => p.
 
 const STRONG_GREETINGS = new Set(['hey', 'hi', 'hello', 'ok', 'okay', 'hay', 'yo', 'hiya', 'heyy']);
 const GREETINGS = new Set(['hey', 'hi', 'hello', 'ok', 'okay', 'a', 'hay', 'yo', 'ey', 'heyy', 'hei']);
+/** Whole clips the recognizer makes of a lone wake phrase. Only an exact match counts, so "hand over the file" doesn't wake. */
+const PHRASE_ALIASES: Record<string, string[]> = {
+  'hey nova': ['and over', 'an over', 'and nova', 'an nova', 'hand over', 'hanover', 'andover', 'in nova', 'a nover', 'hey nover', 'ay nova', 'and noah', 'hey no va', 'he nova'],
+};
+/** Greetings the recognizer glues onto the name ("Hanova" = "Hey Nova"); longest first. */
+const GLUED_GREETINGS = ['hello', 'okay', 'hey', 'hay', 'hei', 'hi', 'ha', 'he', 'eh', 'ey', 'ok', 'yo', 'a', 'e'];
 
 /**
  * Checks whether an utterance starts with the wake phrase (e.g. "hey computer").
@@ -46,6 +52,19 @@ export function matchWake(transcript: string, wakePhrase: string): { woke: boole
   const wake = norm(wakePhrase).split(' ').filter(Boolean);
   const name = wake[wake.length - 1]; // "computer"
   const lead = wake.slice(0, -1); // ["hey"]
+  // The whole clip is a known mishearing of the wake phrase ("And over." = "Hey Nova").
+  if ((PHRASE_ALIASES[wake.join(' ')] ?? []).includes(words.join(' '))) return { woke: true, rest: '' };
+  // Greeting and name heard as one word: "Hanova", "Heynova", "Ehnova".
+  if (words[0] && lead.length) {
+    for (const g of GLUED_GREETINGS) {
+      const tail = words[0].slice(g.length);
+      if (!words[0].startsWith(g) || !tail) continue;
+      if (close(tail, name) || (name.length <= 6 && soundsLike(tail, name))) {
+        const rest = transcript.trim().split(/\s+/).slice(1).join(' ').replace(/^[,.!?;:\s]+/, '').trim();
+        return { woke: true, rest };
+      }
+    }
+  }
   // Look for the name within the first 3 words.
   for (let i = 0; i < Math.min(3, words.length); i++) {
     if (!close(words[i], name)) continue;
@@ -71,9 +90,19 @@ export function matchWake(transcript: string, wakePhrase: string): { woke: boole
   return { woke: false, rest: '' };
 }
 
-/** Same first letter, similar length, at most 2 letters different ("nobad" ≈ "nova"). */
+/** Groups letters that sound alike, so "lopa" and "nova" both become "noba". */
+const SOUND_CLASS: Record<string, string> = { m: 'n', l: 'n', v: 'b', p: 'b', f: 'b', w: 'b', c: 'k', g: 'k', q: 'k', d: 't', z: 's' };
+const soundKey = (w: string) => w.replace(/[^a-z]/g, '').replace(/[a-z]/g, (c) => SOUND_CLASS[c] ?? c);
+
+/**
+ * Close enough to the name to count right after a greeting: same first letter and at most 2
+ * letters different ("nobad" ≈ "nova"), or the same sound ("Hi Lopa" ≈ "Hi Nova").
+ */
 function soundsLike(heard: string, name: string): boolean {
-  return heard[0] === name[0] && heard.length >= name.length - 1 && heard.length <= name.length + 2 && editDistance(heard, name) <= 2;
+  if (heard.length < name.length - 1 || heard.length > name.length + 2) return false;
+  if (heard[0] === name[0] && editDistance(heard, name) <= 2) return true;
+  const h = soundKey(heard), n = soundKey(name);
+  return h.length === n.length && h[0] === n[0] && editDistance(h, n) <= 1;
 }
 
 /**
